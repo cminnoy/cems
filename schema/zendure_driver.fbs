@@ -1,0 +1,119 @@
+namespace CEMS.Zendure;
+
+enum BatteryState : byte { STANDBY = 0, CHARGING = 1, DISCHARGING = 2 }
+enum PackState : byte { STANDBY = 0, CHARGING = 1, DISCHARGING = 2 }
+enum ACStatus : byte { STOPPED = 0, GRID_CONNECTED = 1, CHARGING = 2 }
+enum DCStatus : byte { STOPPED = 0, BATTERY_INPUT = 1, BATTERY_OUTPUT = 2 }
+enum PVStatus : byte { STOPPED = 0, RUNNING = 1 }
+enum ACMode : byte { SLEEP = 0, INPUT = 1, OUTPUT = 2 }
+enum GridStandard : byte { GERMANY = 0, FRANCE = 1, AUSTRIA = 2, SWITZERLAND = 3, NETHERLANDS = 4, SPAIN = 5, BELGIUM = 6, GREECE = 7, DENMARK = 8, ITALY = 9}
+enum OffGridMode : byte { STANDARD, ECONOMIC, CLOSURE }
+enum FanMode : byte { OFF, ON }
+enum FanSpeed : byte { AUTO, FIRST_GEAR, SECOND_GEAR }
+enum GridReverse : byte { DISABLED, ALLOWED, FORBIDDEN }
+
+table BatteryPack {
+    serial_number: string;
+    pack_type: int;
+    state_of_charge: int;
+    state: BatteryState;
+    power: int;
+    max_temperature: float;
+    total_voltage: float;
+    battery_current: float;
+    max_cell_voltage: float;
+    min_cell_voltage: float;
+    soft_version: int;
+    heat_state: bool;
+}
+
+table BatteryStatus {
+    // --- System Identifiers ---
+    timestamp: double;
+    product: string;
+    serial_number: string;
+    version: int;
+
+    // --- System Status & Health ---
+    target_power: int;           // requested target power; negative is charging; positive is discharging
+    temperature: float;
+    is_error: bool;
+    fault_level: int;
+    data_ready: bool;
+    write_response: bool;
+    rssi: int;
+
+    // --- Power Metrics ---
+    input_pack_power: int;        // packInputPower
+    output_pack_power: int;       // outputPackPower
+    output_home_power: int;       // outputHomePower
+    solar_total_power: int;       // solarInputPower
+    grid_input_power: int;        // gridInputPower
+    grid_off_power: int;
+
+    // --- PV String Details ---
+    solar_power_1: int;
+    solar_power_2: int;
+    solar_power_3: int;
+    solar_power_4: int;
+    solar_power_5: int;
+    solar_power_6: int;
+
+    // --- Battery State & Limits ---
+    state_of_charge: int;         // electricLevel
+    target_state_of_charge: float;// socSet / 10.0
+    min_state_of_charge: float;   // minSoc / 10.0
+    remain_out_time: int;         // minutes
+    pack_state: PackState;
+    soc_limit_reached: int;       // 0: Normal, 1: Charge Limit, 2: Discharge Limit
+    charge_max_limit: int;
+    input_limit: int;             // Watt
+    output_limit: int;            // Watt
+
+    // --- Operational Modes ---
+    heating: bool;
+    passthrough: bool;
+    reverse_flow: bool;
+    calibrating: bool;
+    ac_status: ACStatus;
+    dc_status: DCStatus;
+    pv_status: PVStatus;
+    ac_mode: ACMode;
+    grid_state: bool;               // 0: Disconnected, 1: Connected
+    grid_off_mode: OffGridMode;
+    smart_mode: bool;               // 0: Write to flash, 1: RAM only
+    ac_coupling_state: int;         // acCouplingState
+    dry_node_state: int;            // dryNodeState
+    battery_volt: float;            // Battery Voltage
+    fm_volt: int;                   // FMVolt (Activation voltage)
+    iot_state: int;
+    ota_state: int;
+    lcn_state: int;
+    bind_state: int;
+    volt_wakeup: int;
+    time_zone: string;              // timeZone (Region descriptor string)
+    battery_calibration_time: int;  // minutes
+
+    // --- Hardware Control ---
+    fan_switch: FanMode;
+    fan_speed: FanSpeed;
+    lamp_switch: bool;
+
+    // --- Grid Config ---
+    grid_standard: GridStandard;
+    grid_reverse_allowed: GridReverse;
+
+    // --- Children ---
+    packs: [BatteryPack];
+}
+
+struct Target {
+    power: int; // Watt; negative is charging, positive is discharging; 0 is standby
+}
+
+// AC Coupling State
+// Bit	Meaning
+// Bit0	AC-coupled input present, auto-cleared by DSP
+// Bit1	AC input present flag
+// Bit2	AC-coupled overload
+// Bit3	Excess AC input power

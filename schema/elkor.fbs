@@ -1,0 +1,67 @@
+namespace CEMS.Elkor;
+
+struct InstantReading {
+    timestamp: double;                          // When was the sensor data measured (seconds since Epoch)
+    frequency: float;                           // Hz
+    total_real_power: float;                    // W
+    total_system_power_factor: float;           // 1..100
+    total_average_current: float;               // A
+    total_current: float;                       // A
+    total_average_voltage_to_neutral: float;    // V
+    total_average_voltage_to_line: float;       // V
+    total_reactive_power: float;                // var
+    total_apparent_power: float;                // VA
+    phase_a_real_power: float;                  // W
+    phase_a_current: float;                     // A
+    phase_a_voltage_to_neutral: float;          // V
+    phase_a_voltage_to_b: float;                // V
+    phase_a_reactive_power: float;              // var
+    phase_a_apparent_power: float;              // VA
+    phase_a_power_factor: float;                //
+    phase_b_real_power: float;                  // W
+    phase_b_current: float;                     // A
+    phase_b_voltage_to_neutral: float;          // V
+    phase_b_voltage_to_c: float;                // V
+    phase_b_reactive_power: float;              // var
+    phase_b_apparent_power: float;              // VA
+    phase_b_power_factor: float;                //
+    phase_c_real_power: float;                  // W
+    phase_c_current: float;                     // A
+    phase_c_voltage_to_neutral: float;          // V
+    phase_c_voltage_to_a: float;                // V
+    phase_c_reactive_power: float;              // var
+    phase_c_apparent_power: float;              // VA
+    phase_c_power_factor: float;                //
+}
+
+struct EnergyReading {
+    timestamp: double;                          // When was the sensor data measured (seconds since Epoch)
+    total_net_energy: float;                    // Wh
+    total_import_energy: float;                 // Wh
+    total_export_energy: float;                 // Wh
+    total_inductive_energy: float;              // varh
+    total_capacitive_energy: float;             // varh
+    total_net_reactive_energy: float;           // varh
+    total_apparent_energy: float;               // VAh
+    phase_a_net_energy: float;                  // Wh
+    phase_a_import_energy: float;               // Wh
+    phase_a_export_energy: float;               // Wh
+    phase_a_inductive_energy: float;            // varh
+    phase_a_capacitive_energy: float;           // varh
+    phase_a_net_reactive_energy: float;         // varh
+    phase_a_apparent_energy: float;             // VAh
+    phase_b_net_energy: float;                  // Wh
+    phase_b_import_energy: float;               // Wh
+    phase_b_export_energy: float;               // Wh
+    phase_b_inductive_energy: float;            // varh
+    phase_b_capacitive_energy: float;           // varh
+    phase_b_net_reactive_energy: float;         // varh
+    phase_b_apparent_energy: float;             // VAh
+    phase_c_net_energy: float;                  // Wh
+    phase_c_import_energy: float;               // Wh
+    phase_c_export_energy: float;               // Wh
+    phase_c_inductive_energy: float;            // varh
+    phase_c_capacitive_energy: float;           // varh
+    phase_c_net_reactive_energy: float;         // varh
+    phase_c_apparent_energy: float;             // VAh
+}

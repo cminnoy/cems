@@ -1,0 +1,55 @@
+namespace CEMS.OpenMeteo;
+
+// Current weather status
+table WeatherCurrent {
+    timestamp: double;                          // seconds since Epoch
+    latitude: float;                            // Latitude
+    longitude: float;                           // Longitude
+    temperature: float;                         // degrees Celsius
+    direct_normal_irradiance: float;            // W/m2
+    diffuse_horizontal_irradiance: float;       // W/m2
+    direct_radiation: float;                    // W/m2
+    shortwave_radiation: float;                 // W/m2
+    relative_humidity: float;                   // %
+    precipitation_probability: float;           // %
+    precipitation: float;                       // mm
+    pressure_msl: float;                        // hPa
+    cloud_cover_low: float;                     // %
+    cloud_cover_mid: float;                     // %
+    cloud_cover_high: float;                    // %
+    visibility: float;                          // meters
+    wind_speed: float;                          // m/s
+    cloud_cover: float;                         // % (Total)
+    rain: float;                                // mm
+    showers: float;                             // mm
+}
+
+// Fixed-size primitive block for continuous memory allocation
+struct HourlyForecast {
+    timestamp: double;                          // Local time converted to seconds since Epoch
+    temperature: float;                         // degrees Celsius
+    direct_normal_irradiance: float;            // W/m2
+    diffuse_horizontal_irradiance: float;       // W/m2
+    direct_radiation: float;                    // W/m2
+    shortwave_radiation: float;                 // W/m2
+    relative_humidity: float;                   // %
+    precipitation_probability: float;           // %
+    precipitation: float;                       // mm
+    pressure_msl: float;                        // hPa
+    cloud_cover_low: float;                     // %
+    cloud_cover_mid: float;                     // %
+    cloud_cover_high: float;                    // %
+    visibility: float;                          // meters
+    wind_speed: float;                          // m/s
+    cloud_cover: float;                         // % (Total)
+    rain: float;                                // mm
+    showers: float;                             // mm
+}
+
+// Full multi-hour forecast timeline
+table WeatherForecast {
+    generated_timestamp: double;                // Pipeline tracking: when this forecast was fetched
+    latitude: float;                            // Latitude
+    longitude: float;                           // Longitude
+    hourly: [HourlyForecast];                   // Array of chronological steps
+}

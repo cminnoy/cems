@@ -1,0 +1,55 @@
+namespace CEMS.IME;
+
+enum Sector : byte {
+    RESISTIVE_OR_REACTIVE = 0,
+    INDUCTIVE = 1,
+    CAPACITIVE = 2
+}
+
+struct InstantReading {
+    timestamp: double;                                                  // When was the sensor data measured (seconds since Epoch)
+    slave_number: uint;                                                 // Modbus slave slave_number
+    device_identifier: ushort;                                          // Device device_identifier
+    frequency: float;                                                   // Hz
+    l1_l2_voltage: float;                                               // V
+    l2_l3_voltage: float;                                               // V
+    l3_l1_voltage: float;                                               // V
+    tri_phase_active_power: float;                                      // W
+    tri_phase_reactive_power: float;                                    // var
+    tri_phase_apparent_power: float;                                    // VA
+    tri_phase_power_factor: float;                                      // 1/100
+    tri_phase_sector_of_power_factor: Sector;                           // Resistive-Reactive/Inductive/Capacitive
+    tri_phase_peak_maximum_demand: float;                               // W
+    tri_phase_second_tariff_peak_maximum_demand: float;                 // W
+    time_counter_for_average_power: int;                                //
+    tri_phase_average_power: float;                                     // W
+    average_voltage_line_neutral: float;                                // V
+    average_voltage_line_line: float;                                   // V
+    average_current: float;                                             // A
+    phase1_active_power: float;                                         // W
+    phase1_reactive_power: float;                                       // var
+    phase1_voltage: float;                                              // V
+    phase1_current: float;                                              // A
+    phase2_active_power: float;                                         // W
+    phase2_reactive_power: float;                                       // var
+    phase2_voltage: float;                                              // V
+    phase2_current: float;                                              // A
+    phase3_active_power: float;                                         // W
+    phase3_reactive_power: float;                                       // var
+    phase3_voltage: float;                                              // V
+    phase3_current: float;                                              // A
+}
+
+struct EnergyReading {
+    timestamp: double;                                                  // When was the sensor data measured (seconds since Epoch)
+    slave_number: uint;                                                 // Modbus slave slave_number
+    device_identifier: ushort;                                          // Device device_identifier
+    tri_phase_total_positive_active_energy: float;                      // kWh
+    tri_phase_total_positive_reactive_energy: float;                    // kvarh
+    tri_phase_partial_positive_active_energy: float;                    // kWh
+    tri_phase_partial_positive_reactive_energy: float;                  // kvarh
+    tri_phase_total_positive_active_energy2 : float;                    // kvarh
+    tri_phase_total_positive_reactive_energy2 : float;                  // kvarh
+    tri_phase_partial_second_tariff_positive_active_energy: float;      // kWh
+    tri_phase_partial_second_tariff_positive_reactive_energy: float;    // kvarh
+}

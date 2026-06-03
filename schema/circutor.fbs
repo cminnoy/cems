@@ -1,0 +1,67 @@
+namespace CEMS.Circutor;
+
+struct InstantReading {
+    timestamp: double;              // When was the sensor data measured (seconds since Epoch)
+    slave_number: uint;             // Modbus slave slave_number
+    phase1_voltage: float;          // V
+    phase2_voltage: float;          // V
+    phase3_voltage: float;          // V
+    phase1_current: float;          // A
+    phase2_current: float;          // A
+    phase3_current: float;          // A
+    phase1_cos_phi: float;          //
+    phase2_cos_phi: float;          //
+    phase3_cos_phi: float;          //
+    phase1_active_power: int32;     // W
+    phase2_active_power: int32;     // W
+    phase3_active_power: int32;     // W
+    total_active_power: int32;      // W
+    phase1_reactive_power: int32;   // var
+    phase2_reactive_power: int32;   // var
+    phase3_reactive_power: int32;   // var
+    total_reactive_power: int32;    // var
+    phase1_apparent_power: int32;   // VA
+    phase2_apparent_power: int32;   // VA
+    phase3_apparent_power: int32;   // VA
+    total_apparent_power: int32;    // VA
+}
+
+struct EnergyReading {
+    timestamp: double;                      // When was the sensor data measured (seconds since Epoch)
+    slave_number: uint;                     // Modbus slave slave_number
+    imported_active_energy: int32;          // Wh
+    exported_active_energy: int32;          // Wh
+    q1_reactive_energy: uint32;             // varh
+    q2_reactive_energy: uint32;             // varh
+    q3_reactive_energy: uint32;             // varh
+    q4_reactive_energy: uint32;             // varh
+    partial_imported_active_energy: int32;  // Wh
+    partial_exported_active_energy: int32;  // Wh
+    q1_partial_reactive_energy: uint32;     // varh
+    q2_partial_reactive_energy: uint32;     // varh
+    q3_partial_reactive_energy: uint32;     // varh
+    q4_partial_reactive_energy: uint32;     // varh
+}
+
+struct DigitalInput {
+    digital_input_status: int16;
+    total_impulse_count: int32;
+    partial_impulse_count: int32;
+}
+
+struct OperatingStatistics {
+    cost_of_the_partial_consumption: int32;
+    atmospheric_emissions_of_partial_consumption: int32;    // KgCO2
+    hours_of_partial_operation: int32;                      // seconds
+    hours_of_total_operation: int32;                        // seconds
+}
+
+struct Configuration {
+    high_firmware_version_number: int16;
+    low_firmware_version_number: int16;
+    revised_firmware_version_number: int16;
+    serial_number: int32;
+    identifier_id_number: int32;
+}
+
+
