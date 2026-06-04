@@ -401,13 +401,13 @@ public:
             do {
                 sync_pll();
 
-                // Background Read (Energy)
+                // Energy
                 process_until(pll_.pre_tick());
                 auto const t_start = std::chrono::steady_clock::now();
                 read_and_publish_energy();
                 pll_.set_lead_time(std::chrono::steady_clock::now() - t_start);
 
-                // Critical Read (Power)
+                // Power
                 process_until(pll_.at_tick());
                 read_and_publish_instantaneous();
                 pll_.advance();
