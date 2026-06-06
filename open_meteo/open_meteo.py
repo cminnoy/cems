@@ -90,7 +90,10 @@ class WeatherProvider:
                 "wind_speed_10m",
                 "cloud_cover",
                 "rain",
-                "showers"
+                "showers",
+                "snowfall",
+                "dew_point_2m",
+                "weather_code"
             ],
             "forecast_days": 2,
             "timezone": "Europe/Berlin"
@@ -130,6 +133,9 @@ class WeatherProvider:
             cloud_cover_vec = hourly.Variables(14).ValuesAsNumpy()
             rain_vec = hourly.Variables(15).ValuesAsNumpy()
             showers_vec = hourly.Variables(16).ValuesAsNumpy()
+            snowfall_vec = hourly.Variables(17).ValuesAsNumpy()
+            dew_point_2m_vec = hourly.Variables(18).ValuesAsNumpy()
+            weather_code_vec = hourly.Variables(19).ValuesAsNumpy()
 
             start_epoch = hourly.Time()
             num_elements = len(temp_vec)
@@ -156,7 +162,10 @@ class WeatherProvider:
                 "wind_speed": wind_vec.tolist(),
                 "cloud_cover": cloud_cover_vec.tolist(),
                 "rain": rain_vec.tolist(),
-                "showers": showers_vec.tolist()
+                "showers": showers_vec.tolist(),
+                "snowfall": snowfall_vec.tolist(),
+                "dew_point_2m": dew_point_2m_vec.tolist(),
+                "weather_code": weather_code_vec.tolist()
             }
             self.last_fetch_ts = now
             print("[Weather] Forecast cache synchronized via Open-Meteo SDK.")
@@ -202,7 +211,10 @@ class WeatherProvider:
                 "wind": self.cached_forecast["wind_speed"][idx],
                 "cloud_cover": self.cached_forecast["cloud_cover"][idx],
                 "rain": self.cached_forecast["rain"][idx],
-                "showers": self.cached_forecast["showers"][idx]
+                "showers": self.cached_forecast["showers"][idx],
+                "snowfall": self.cached_forecast["snowfall"][idx],
+                "dew_point_2m": self.cached_forecast["dew_point_2m"][idx],
+                "weather_code": self.cached_forecast["weather_code"][idx]
             })
         return sequences
 
@@ -293,6 +305,9 @@ class OpenMeteo(fabrix.Component):
         WeatherCurrent.AddCloudCover(builder, float(metrics["cloud_cover"]))
         WeatherCurrent.AddRain(builder, metrics["rain"])
         WeatherCurrent.AddShowers(builder, metrics["showers"])
+        WeatherCurrent.AddSnowfall(builder, metrics["snowfall"])
+        WeatherCurrent.AddDewPoint2m(builder, metrics["dew_point_2m"])
+        WeatherCurrent.AddWeatherCode(builder, int(metrics["weather_code"]))
         offset = WeatherCurrent.End(builder)
         builder.Finish(offset)
 
@@ -312,6 +327,7 @@ class OpenMeteo(fabrix.Component):
                 HourlyForecast.CreateHourlyForecast(
                     fc_builder,
                     frame["timestamp"],
+                    int(frame["weather_code"]),
                     frame["temp"],
                     frame["direct_normal"],
                     frame["diffuse"],
@@ -328,7 +344,9 @@ class OpenMeteo(fabrix.Component):
                     frame["wind"],
                     frame["cloud_cover"],
                     frame["rain"],
-                    frame["showers"]
+                    frame["showers"],
+                    frame["snowfall"],
+                    frame["dew_point_2m"]   
                 )
             vector_offset = fc_builder.EndVector()
 

@@ -56,6 +56,7 @@ from CEMS.Zendure.FanSpeed import FanSpeed
 from CEMS.Zendure.GridReverse import GridReverse
 from CEMS.Zendure.ControlStatus import ControlStatus
 from CEMS.Zendure.ControlState import ControlState
+from CEMS.OpenMeteo.WeatherCode import WeatherCode
 from CEMS.OpenMeteo.WeatherCurrent import WeatherCurrent
 from CEMS.OpenMeteo.WeatherForecast import WeatherForecast
 
@@ -396,12 +397,16 @@ def format_zendure(bs, details:bool=True):
         f"Serial Num.: {bs.SerialNumber().decode('utf-8')}",
         f"Version: {bs.Version()}",
         f"Temperature: {bs.Temperature():.1f} °C",
+        f"Target Power: {bs.TargetPower()} W",
+        f"Countdown Power Update: {bs.CountdownPowerUpdate()} s",
+        f"Countdown State Change: {bs.CountdownStateChange()} s",
+        f"Countdown Standby: {bs.CountdownStandby()} s",
+        f"Countdown Low Power: {bs.CountdownLowPower()} s",
         f"Error: {bs.IsError()}",
         f"Fault Level: {bs.FaultLevel()}",
         f"Data Ready: {bs.DataReady()}",
         f"Write Response: {bs.WriteResponse()}",
         f"RSSI: {bs.Rssi()} dBm",
-        f"Target Power: {bs.TargetPower()} W",
         f"Input Pack Power: {bs.InputPackPower()} W",
         f"Output Pack Power: {bs.OutputPackPower()} W",
         f"Output Home Power: {bs.OutputHomePower()} W",
@@ -538,6 +543,9 @@ def format_weather_current(ws, details:bool=True):
 
     dt = datetime.fromtimestamp(ws.Timestamp())
     timestamp_label = dt.strftime('%H:%M:%S') + f".{dt.microsecond // 10000:02d}"
+    weather_code = ws.WeatherCode()
+    weather_code_map = {v: k for k, v in WeatherCode.__dict__.items() if not k.startswith('_')}
+    weather_code_label = weather_code_map.get(weather_code, f"UNKNOWN ({weather_code})")
 
     l = [
         f"Unix time: {ws.Timestamp():.3f}",
@@ -548,6 +556,7 @@ def format_weather_current(ws, details:bool=True):
         f"Longitude: {ws.Longitude():.5f} °E",
         f"Elevation: {ws.Elevation():.2f} m a.s.l.",
         f"Temperature: {ws.Temperature():.1f} °C",
+        f"Weather Code: {weather_code_label}",
         f"Direct Irradiance: {ws.DirectNormalIrradiance():.2f} W/m2",
         f"Diffuse Irradiance: {ws.DiffuseHorizontalIrradiance():.2f} W/m2",
         f"Direct Radiation: {ws.DirectRadiation():.2f} W/m2",
@@ -564,6 +573,8 @@ def format_weather_current(ws, details:bool=True):
         f"Wind Speed: {ws.WindSpeed():.2f} m/s",
         f"Rain: {ws.Rain():.2f} mm",
         f"Showers: {ws.Showers():.2f} mm",
+        f"Snowfall: {ws.Snowfall():.2f} mm",
+        f"Dew Point 2m: {ws.DewPoint2m():.2f} °C"
     ]
     return l
 
@@ -572,6 +583,7 @@ def format_weather_forecast(wf, details:bool=True):
         return ["N/A"]
 
     gen_time = datetime.fromtimestamp(wf.GeneratedTimestamp()).strftime('%Y-%m-%d %H:%M:%S')
+    weather_code_map = {v: k for k, v in WeatherCode.__dict__.items() if not k.startswith('_')}
 
     l = [
         f"Gen. Time: {gen_time}",
@@ -584,9 +596,12 @@ def format_weather_forecast(wf, details:bool=True):
         if timestamp < time.time():
             continue
         hour_time = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M')
+        weather_code = hourly.WeatherCode()
+        weather_code_label = weather_code_map.get(weather_code, f"UNKNOWN ({weather_code})")
         l += [
             f"- {hour_time}",
             f"  Temperature   : {hourly.Temperature():.1f} °C",
+            f"  Weather Code: : {weather_code_label}",
             f"  Dir. Irrad.   : {hourly.DirectNormalIrradiance():.2f} W/m2",
             f"  Diff. Irrad.  : {hourly.DiffuseHorizontalIrradiance():.2f} W/m2",
             f"  Direct Rad.   : {hourly.DirectRadiation():.2f} W/m2",
@@ -603,6 +618,8 @@ def format_weather_forecast(wf, details:bool=True):
             f"  Wind Speed    : {hourly.WindSpeed():.2f} m/s",
             f"  Rain          : {hourly.Rain():.2f} mm",
             f"  Showers       : {hourly.Showers():.2f} mm",
+            f"  Snowfall      : {hourly.Snowfall():.2f} mm",
+            f"  Dew Point 2m  : {hourly.DewPoint2m():.2f} °C"
         ]
     return l
 

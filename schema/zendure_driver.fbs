@@ -99,6 +99,12 @@ table BatteryStatus {
     fan_speed: FanSpeed;
     lamp_switch: bool;
 
+    // --- Software Control ---
+    countdown_power_update: ubyte;  // Seconds before next power update is accepted
+    countdown_state_change: ubyte;  // Seconds before a next state change can happen
+    countdown_standby: ubyte;       // Seconds before system goes into standby since the last power update
+    countdown_low_power: ubyte;     // Seconds before system goes into low power state after being in standby state
+
     // --- Grid Config ---
     grid_standard: GridStandard;
     grid_reverse_allowed: GridReverse;
