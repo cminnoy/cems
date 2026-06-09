@@ -32,16 +32,25 @@ import fabrix
 import curses
 from datetime import datetime, timezone
 from fabrix import rcu
-import CEMS.Zendure.ControlStatus
 
 from CEMS.MasterClock.ClockTick import ClockTick as MasterClockTick
+
+from CEMS.DSMR.DSMRData import DSMRData as DSMRData
+from CEMS.DSMR.Instant import Instant as DSMRInstantReading
+from CEMS.DSMR.Energy import Energy as DSMREnergyReading
+from CEMS.DSMR.NaturalGas import NaturalGas as DSMRNaturalGas
+from CEMS.DSMR.PeakConsumption import PeakConsumption as DSMRPeakConsumption
+
 from CEMS.Elkor.InstantReading import InstantReading as ElkorInstantReading
 from CEMS.Elkor.EnergyReading import EnergyReading as ElkorEnergyReading
+
 from CEMS.IME.InstantReading import InstantReading as IMEInstantReading
 from CEMS.IME.EnergyReading import EnergyReading as IMEEnergyReading
 from CEMS.IME.Sector import Sector as IMESector
+
 from CEMS.Circutor.InstantReading import InstantReading as EVMeterInstantReading
 from CEMS.Circutor.EnergyReading import EnergyReading as EVMeterEnergyReading
+
 from CEMS.Zendure.BatteryStatus import BatteryStatus
 from CEMS.Zendure.BatteryState import BatteryState
 from CEMS.Zendure.PackState import PackState
@@ -56,12 +65,13 @@ from CEMS.Zendure.FanSpeed import FanSpeed
 from CEMS.Zendure.GridReverse import GridReverse
 from CEMS.Zendure.ControlStatus import ControlStatus
 from CEMS.Zendure.ControlState import ControlState
+
 from CEMS.OpenMeteo.WeatherCode import WeatherCode
 from CEMS.OpenMeteo.WeatherCurrent import WeatherCurrent
 from CEMS.OpenMeteo.WeatherForecast import WeatherForecast
 
 exit_code = 0
-stop = False    
+stop = False
 
 # Signal handler to handle Ctrl+C
 def interrupt_handler(signum, frame):
@@ -79,6 +89,102 @@ def format_master_clock(clock):
     if clock is None:
         return "Master Clock: N/A"
     return f"Master Clock: {clock.Timestamp():.3f} | Freq: {clock.Frequency():.2f} Hz | Arrow keys: Scroll up/down/left/right | (i) Toggle instant, (e) Toggle energy, (d) Toggle details, (q) Quit"
+
+def format_dsmr_instant(dsmr_data, details:bool=True):
+    if dsmr_data is None:
+        return ["N/A"]
+
+    dt = datetime.fromtimestamp(dsmr_data.Timestamp())
+    timestamp_label = dt.strftime('%H:%M:%S') + f".{dt.microsecond // 10000:02d}"
+
+    l = [
+        f"Unix time: {dsmr_data.Timestamp():.3f}",
+        f"Timestamp: {timestamp_label}",
+    ]
+
+    if dsmr_data.Instant() is not None:
+        instant = dsmr_data.Instant()
+        l += [
+            "",
+            "--- TOTAL ---",
+            f"Consumption: {instant.TotalConsumption()*1000.0:0.0f} W",
+            f"Injection: {instant.TotalInjection()*1000.0:0.0f} W",
+            f"Quarter Average: {instant.QuarterAverage()*1000.0:.0f} W",
+            f"Current Month Peak: {instant.CurrentMonthPeak()*1000.0:.0f} W",
+        ]
+
+        if details:
+            l += [
+                "",
+                "--- PHASE A (L2) ---",
+                f"Consumption: {instant.Phase2Consumption()*1000.0:0.0f} W",
+                f"Injection: {instant.Phase2Injection()*1000.0:0.0f} W",
+                f"V: {instant.Phase2Voltage()} V",
+                f"I: {instant.Phase2Current()} A",
+                "",
+                "--- PHASE B (L3) ---",
+                f"Consumption: {instant.Phase3Consumption()*1000.0:0.0f} W",
+                f"Injection: {instant.Phase3Injection()*1000.0:0.0f} W",
+                f"V: {instant.Phase3Voltage()} V",
+                f"I: {instant.Phase3Current()} A",
+                "",
+                "--- PHASE C (L1) ---",
+                f"Consumption: {instant.Phase1Consumption()*1000.0:0.0f} W",
+                f"Injection: {instant.Phase1Injection()*1000.0:0.0f} W",
+                f"V: {instant.Phase1Voltage()} V",
+                f"I: {instant.Phase1Current()} A",
+            ]
+
+    return l
+
+def format_dsmr_energy(dsmr_data, details:bool=True):
+    if dsmr_data is None:
+        return ["N/A"]
+
+    dt = datetime.fromtimestamp(dsmr_data.Timestamp())
+    timestamp_label = dt.strftime('%H:%M:%S') + f".{dt.microsecond // 10000:02d}"
+
+    l = [
+        f"Unix time: {dsmr_data.Timestamp():.3f}",
+        f"Timestamp: {timestamp_label}",
+    ]
+
+    if dsmr_data.Energy() is not None:
+        energy = dsmr_data.Energy()
+        l += [
+            "",
+            f"Consumption Tarif 1: {energy.ConsumptionTarif1():.2f} kWh",
+            f"Consumption Tarif 2: {energy.ConsumptionTarif2():.2f} kWh",
+            f"Production Tarif 1: {energy.InjectionTarif1():.2f} kWh",
+            f"Production Tarif 2: {energy.InjectionTarif2():.2f} kWh"
+        ]
+
+    return l
+
+def format_dsmr_gas(dsmr_data, details:bool=True):
+    if dsmr_data and dsmr_data.NaturalGas() is not None:
+        natural_gas = dsmr_data.NaturalGas()
+        l = [
+            f"Consumption: {natural_gas.ConsumptionM3():.3f} m3"
+        ]
+        return l
+    else:
+        return ["N/A"]
+
+def format_dsmr_history(dsmr_data, details:bool=True):
+    if dsmr_data and not dsmr_data.MonthPeaksIsNone():
+        len_peaks = dsmr_data.MonthPeaksLength()
+        l = []
+        for idx in range(len_peaks):
+            peak = dsmr_data.MonthPeaks(idx)
+            dt = datetime.fromtimestamp(peak.Timestamp())
+            timestamp_label = dt.strftime('%Y-%m-%d %H:%M')
+            l += [
+                f"{timestamp_label} -> {peak.Value()*1000.0:.0f} W"
+            ]
+    else:
+        return ["N/A"]
+    return l
 
 def format_elkor_instant(ir, details:bool=True):
     if ir is None:
@@ -680,6 +786,7 @@ class Observer(fabrix.Component):
     """Observer - reads sensor data and prints it on the screen using the RCU mechanism."""
 
     _COMPONENT_NAME_MASTER_CLOCK = "master_clock"
+    _COMPONENT_NAME_DSMR = "dsmr"
     _COMPONENT_NAME_ELKOR = "elkor"
     _COMPONENT_NAME_IME = "ime"
     _COMPONENT_NAME_EV_METER = "ev_meter"
@@ -692,6 +799,7 @@ class Observer(fabrix.Component):
         """Constructor."""
         super().__init__(name, "cems")
         self.master_clock_area = rcu.Reader()
+        self.dsmr_data_area = rcu.Reader()
         self.elkor_instant_reading_area = rcu.Reader()
         self.elkor_energy_reading_area = rcu.Reader()
         self.ime_instant_reading_area = rcu.Reader()
@@ -705,6 +813,7 @@ class Observer(fabrix.Component):
         self.weather_forecast_area = rcu.Reader()
         self.data = {
             "master_clock": {"clock_tick": None},
+            "dsmr": {"data": None},
             "elkor": {"instant": None, "energy": None},
             "ime": {"instant": None, "energy": None},
             "circutor": {"instant": None, "energy": None},
@@ -747,9 +856,9 @@ class Observer(fabrix.Component):
                 time.sleep(0.5)
                 continue
 
-            # Spaces for ELKOR, IME, CIRCUTOR, ZENDURE A, ZENDURE B, ZENDURE CONTROL, WEATHER
+            # Spaces for DSMR, ELKOR, IME, CIRCUTOR, ZENDURE A, ZENDURE B, ZENDURE CONTROL, WEATHER
             col_w = 40
-            total_content_width = col_w * 7
+            total_content_width = col_w * 8
 
             # Draw static master clock header on the standard window
             clock_str = format_master_clock(self.data["master_clock"]["clock_tick"])
@@ -761,6 +870,16 @@ class Observer(fabrix.Component):
                 pass
 
             # Gather telemetry lines
+
+            dsmr_lines = []
+            if self.instant:
+                dsmr_lines += ["", "-- Instant --"] + format_dsmr_instant(self.data["dsmr"]["data"], self.details)
+            if self.energy:
+                dsmr_lines += ["", "-- Energy --"] + format_dsmr_energy(self.data["dsmr"]["data"], self.details)
+            dsmr_lines += ["", "-- Gas --"] + format_dsmr_gas(self.data["dsmr"]["data"], self.details)
+            if self.details:
+                dsmr_lines += ["", "-- History --"] + format_dsmr_history(self.data["dsmr"]["data"], self.details)
+
             elkor_lines = []
             if self.instant:
                 elkor_lines += ["", "-- Instant --"] + format_elkor_instant(self.data["elkor"]["instant"], self.details)
@@ -796,7 +915,7 @@ class Observer(fabrix.Component):
                 weather_lines += ["", "-- CURRENT --"] + format_weather_current(self.data["weather"]["current"], self.details) + \
                                  ["", "-- FORECAST --"] + format_weather_forecast(self.data["weather"]["forecast"], self.details)
 
-            total_content_height = max(len(elkor_lines), len(ime_lines), len(circ_lines), len(bat_lines_a), len(bat_lines_b), len(bat_control_lines), len(weather_lines)) + 3
+            total_content_height = max(len(dsmr_lines), len(elkor_lines), len(ime_lines), len(circ_lines), len(bat_lines_a), len(bat_lines_b), len(bat_control_lines), len(weather_lines)) + 3
 
             visible_viewport_height = height - 4
             if visible_viewport_height < 1:
@@ -812,13 +931,14 @@ class Observer(fabrix.Component):
 
             # Render viewport direct matrix
             renderer = ColumnRenderer(stdscr, height, width, col_w, self.scroll_col)
-            renderer.draw(0, "ELKOR", elkor_lines, self.scroll_row, visible_viewport_height)
-            renderer.draw(col_w, "IME", ime_lines, self.scroll_row, visible_viewport_height)
-            renderer.draw(2 * col_w, "CIRCUTOR", circ_lines, self.scroll_row, visible_viewport_height)
-            renderer.draw(3 * col_w, "ZENDURE A", bat_lines_a, self.scroll_row, visible_viewport_height)
-            renderer.draw(4 * col_w, "ZENDURE B", bat_lines_b, self.scroll_row, visible_viewport_height)
-            renderer.draw(5 * col_w, "ZENDURE CONTROL", bat_control_lines, self.scroll_row, visible_viewport_height)
-            renderer.draw(6 * col_w, "WEATHER", weather_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(0 * col_w, "DSMR", dsmr_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(1 * col_w, "ELKOR", elkor_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(2 * col_w, "IME", ime_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(3 * col_w, "CIRCUTOR", circ_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(4 * col_w, "ZENDURE A", bat_lines_a, self.scroll_row, visible_viewport_height)
+            renderer.draw(5 * col_w, "ZENDURE B", bat_lines_b, self.scroll_row, visible_viewport_height)
+            renderer.draw(6 * col_w, "ZENDURE CONTROL", bat_control_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(7 * col_w, "WEATHER", weather_lines, self.scroll_row, visible_viewport_height)
 
             stdscr.refresh()
 
@@ -866,6 +986,8 @@ class Observer(fabrix.Component):
         for name in self.list_components(True):
             if name == self._COMPONENT_NAME_MASTER_CLOCK and (endpoint := self._open_endpoint(name)).is_open():
                 self.master_clock_area = rcu.find_area(endpoint, "ClockTick")
+            elif name == self._COMPONENT_NAME_DSMR and (endpoint := self._open_endpoint(name)).is_open():
+                self.dsmr_data_area = rcu.find_area(endpoint, "DSMRData")
             elif name == self._COMPONENT_NAME_ELKOR and (endpoint := self._open_endpoint(name)).is_open():
                 self.elkor_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
                 self.elkor_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
@@ -891,6 +1013,8 @@ class Observer(fabrix.Component):
             return
         if name == self._COMPONENT_NAME_MASTER_CLOCK and (endpoint := self._open_endpoint(name)).is_open():
             self.master_clock_area = rcu.find_area(endpoint, "ClockTick")
+        elif name == self._COMPONENT_NAME_DSMR and (endpoint := self._open_endpoint(name)).is_open():
+            self.dsmr_data_area = rcu.find_area(endpoint, "DSMRData")
         elif name == self._COMPONENT_NAME_ELKOR and (endpoint := self._open_endpoint(name)).is_open():
             self.elkor_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
             self.elkor_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
@@ -915,6 +1039,9 @@ class Observer(fabrix.Component):
         if name == self._COMPONENT_NAME_MASTER_CLOCK:
             self.master_clock_area.reset()
             self.data["master_clock"]["clock_tick"] = None
+        elif name == self._COMPONENT_NAME_DSMR:
+            self.dsmr_data_area.reset()
+            self.data["dsmr"]["data"] = None
         elif name == self._COMPONENT_NAME_ELKOR:
             self.elkor_instant_reading_area.reset()
             self.elkor_energy_reading_area.reset()
@@ -952,6 +1079,13 @@ class Observer(fabrix.Component):
                 clock = MasterClockTick()
                 clock.Init(access.get(), 8)
                 self.data["master_clock"]["clock_tick"] = clock
+            else:
+                do_scan = True
+
+        with rcu.ScopedAccess(self.dsmr_data_area) as access:
+            if access:
+                dsmr_data = DSMRData.GetRootAsDSMRData(access.get(), 0)
+                self.data["dsmr"]["data"] = dsmr_data
             else:
                 do_scan = True
 
@@ -1037,6 +1171,8 @@ class Observer(fabrix.Component):
             name = endpoint.identifier().name()
             if name == self._COMPONENT_NAME_MASTER_CLOCK and not self.master_clock_area:
                 self.master_clock_area = rcu.find_area(endpoint, "ClockTick")
+            elif name == self._COMPONENT_NAME_DSMR and not self.dsmr_data_area:
+                self.dsmr_data_area = rcu.find_area(endpoint, "DSMRData")
             elif name == self._COMPONENT_NAME_ELKOR and (not self.elkor_instant_reading_area or not self.elkor_energy_reading_area):
                 self.elkor_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
                 self.elkor_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
@@ -1060,7 +1196,7 @@ class Observer(fabrix.Component):
             self.for_each_open_endpoint(scan_rcu)
 
     def _on_error(self, other_end, error_code):
-        """Print errors."""      
+        """Print errors."""
         print(f"Error: {other_end.identifier().name() if other_end else '<>'} with error code {fabrix.EnumNameErrorCode(error_code)}")
 
     def _on_halt_component_request(self, sender_endpoint):

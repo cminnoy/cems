@@ -1,0 +1,50 @@
+namespace CEMS.DSMR;
+
+struct Instant {
+    power_limit: double;                  // kW
+    current_limit: double;                // A
+
+    total_consumption: double;            // kW
+    total_injection: double;              // kW
+    quarter_average: double;              // kW
+    current_month_peak: double;           // kW
+
+    phase1_consumption: double;           // kW
+    phase1_injection: double;             // kW
+    phase1_voltage: double;               // W
+    phase1_current: double;               // A
+
+    phase2_consumption: double;           // kW
+    phase2_injection: double;             // kW
+    phase2_voltage: double;               // V
+    phase2_current: double;               // A
+
+    phase3_consumption: double;           // kW
+    phase3_injection: double;             // kW
+    phase3_voltage: double;               // V
+    phase3_current: double;               // A
+}
+
+struct Energy {
+    consumption_tarif_1: double;          // kWh
+    consumption_tarif_2: double;          // kWh
+    injection_tarif_1: double;            // kWh
+    injection_tarif_2: double;            // kWh
+}
+
+struct PeakConsumption {
+    timestamp: ulong;                     // unix epoch (sec)
+    value: double;                        // kW
+}
+
+struct NaturalGas {
+    consumption_m3: float;                // m3
+}
+
+table DSMRData {
+    timestamp : double;                   // unix epoch (sec)
+    natural_gas: NaturalGas;              // Natural gas (m3)
+    month_peaks: [PeakConsumption];       // History of monthly peak consumption
+    instant: Instant;                     // Instant electricity readings
+    energy: Energy;                       // Energy electricity readings
+}
