@@ -125,6 +125,7 @@ class DSMRReader:
             # Gas
             '0-1:24.2.3': 'Gasstand (m3)',
         }
+        self.ser = serial.Serial(self.port, self.baudrate, timeout=10)
 
     def parse_line(self, line: str) -> Dict[str, Any]:
         """Parse a single DSMR line into value and unit."""
@@ -172,25 +173,24 @@ class DSMRReader:
         """Read and parse DSMR data from the serial port."""
         data = {}
         try:
-            with serial.Serial(self.port, self.baudrate, timeout=10) as ser:
-                while True:
-                    line = ser.readline().decode('ascii', errors='ignore').strip()
+            while True:
+                line = self.ser.readline().decode('ascii', errors='ignore').strip()
 
-                    # Parse historical data
-                    if '0-0:98.1.0' in line:
-                        data['history'] = self.parse_history(line)
-                        continue
+                # Parse historical data
+                if '0-0:98.1.0' in line:
+                    data['history'] = self.parse_history(line)
+                    continue
 
-                    # Parse regular data
-                    for code, label in self.obis_map.items():
-                        if code in line:
-                            parsed = self.parse_line(line)
-                            if parsed:
-                                data[label] = parsed
+                # Parse regular data
+                for code, label in self.obis_map.items():
+                    if code in line:
+                        parsed = self.parse_line(line)
+                        if parsed:
+                            data[label] = parsed
 
-                    # End of telegram
-                    if line.startswith('!'):
-                        break
+                # End of telegram
+                if line.startswith('!'):
+                    break
 
         except Exception as e:
             print(f"DSMR reading error: {e}")
@@ -243,13 +243,16 @@ class DSMRComponent(fabrix.Component):
         print(f"Received unsubscribe request from '{sender_endpoint.identifier().name()}' for topic '{topic_name}'")
         return topic_name == self._TOPIC_NAME_DSMR_DATA
 
+    def _on_list_topics_request(self, sender_endpoint, topics):
+        topics.append(self._TOPIC_NAME_DSMR_DATA)
+
     def _act(self):
         # Read DSMR data
         new_dsmr_data = self.dsmr_reader.read_data()
-        self.dsmr_data.update(new_dsmr_data)
 
-        # Publish data via RCU
-        if self.dsmr_data:
+        # Publish data
+        if new_dsmr_data:
+            self.dsmr_data.update(new_dsmr_data)
             builder = flatbuffers.Builder(1024)
             # Monthly peaks vector
             history_items = self.dsmr_data.get('history', {})
@@ -335,6 +338,10 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    """Main function"""
+    global exit_code
+
+    # Parse command line arguments
     args = parse_args()
 
     # Random seed
@@ -362,4 +369,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    sys.exit()
+    sys.exit(main())

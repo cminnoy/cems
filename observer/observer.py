@@ -30,7 +30,7 @@ import random
 import argparse
 import fabrix
 import curses
-from datetime import datetime, timezone
+from datetime import datetime
 from fabrix import rcu
 
 from CEMS.MasterClock.ClockTick import ClockTick as MasterClockTick
@@ -567,7 +567,6 @@ def format_zendure(bs, details:bool=True):
             f"Smart Mode: {bs.SmartMode()}",
             f"IOT State: {bs.IotState()}",
             f"OTA State: {bs.OtaState()}",
-            f"LCN State: {bs.LcnState()}",
             f"Bind State: {bs.BindState()}",
             f"Dry Node: {bs.DryNodeState()}",
             f"FM Volt: {bs.FmVolt()} V",
@@ -872,6 +871,10 @@ class Observer(fabrix.Component):
             # Gather telemetry lines
 
             dsmr_lines = []
+            if self.dsmr_data_area and self.dsmr_data_area.endpoint():
+                dsmr_lines += [f"Owner Active: {self.dsmr_data_area.endpoint().is_owner_active()}",
+                               f"Creator PID: {self.dsmr_data_area.endpoint().creator_pid()}",
+                               f"Created On: {datetime.fromtimestamp(self.dsmr_data_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.instant:
                 dsmr_lines += ["", "-- Instant --"] + format_dsmr_instant(self.data["dsmr"]["data"], self.details)
             if self.energy:
@@ -881,36 +884,64 @@ class Observer(fabrix.Component):
                 dsmr_lines += ["", "-- History --"] + format_dsmr_history(self.data["dsmr"]["data"], self.details)
 
             elkor_lines = []
+            if self.elkor_instant_reading_area and self.elkor_instant_reading_area.endpoint():
+                elkor_lines += [f"Owner Active: {self.elkor_instant_reading_area.endpoint().is_owner_active()}",
+                                f"Creator PID: {self.elkor_instant_reading_area.endpoint().creator_pid()}",
+                                f"Created On: {datetime.fromtimestamp(self.elkor_instant_reading_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.instant:
                 elkor_lines += ["", "-- Instant --"] + format_elkor_instant(self.data["elkor"]["instant"], self.details)
             if self.energy:
                 elkor_lines += ["", "-- Energy --"] + format_elkor_energy(self.data["elkor"]["energy"], self.details)
 
             ime_lines = []
+            if self.ime_instant_reading_area and self.ime_instant_reading_area.endpoint():
+                ime_lines += [f"Owner Active: {self.ime_instant_reading_area.endpoint().is_owner_active()}",
+                              f"Creator PID: {self.ime_instant_reading_area.endpoint().creator_pid()}",
+                              f"Created On: {datetime.fromtimestamp(self.ime_instant_reading_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.instant:
                 ime_lines += ["", "-- Instant --"] + format_ime_instant(self.data["ime"]["instant"], self.details)
             if self.energy:
                 ime_lines += ["", "-- Energy --"] + format_ime_energy(self.data["ime"]["energy"], self.details)
 
             circ_lines = []
+            if self.circutor_instant_reading_area and self.circutor_instant_reading_area.endpoint():
+                circ_lines += [f"Owner Active: {self.circutor_instant_reading_area.endpoint().is_owner_active()}",
+                               f"Creator PID: {self.circutor_instant_reading_area.endpoint().creator_pid()}",
+                               f"Created On: {datetime.fromtimestamp(self.circutor_instant_reading_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.instant:
                 circ_lines += ["", "-- Instant --"] + format_circutor_instant(self.data["circutor"]["instant"], self.details)
             if self.energy:
                 circ_lines += ["", "-- Energy --"] + format_circutor_energy(self.data["circutor"]["energy"], self.details)
 
             bat_lines_a = []
+            if self.zendure_battery_a_area and self.zendure_battery_a_area.endpoint():
+                bat_lines_a += [f"Owner Active: {self.zendure_battery_a_area.endpoint().is_owner_active()}",
+                                f"Creator PID: {self.zendure_battery_a_area.endpoint().creator_pid()}",
+                                f"Created On: {datetime.fromtimestamp(self.zendure_battery_a_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.battery_a:
                 bat_lines_a += [""] + format_zendure(self.data["zendure"]["a"], self.details)
 
             bat_lines_b = []
+            if self.zendure_battery_b_area and self.zendure_battery_b_area.endpoint():
+                bat_lines_b += [f"Owner Active: {self.zendure_battery_b_area.endpoint().is_owner_active()}",
+                                f"Creator PID: {self.zendure_battery_b_area.endpoint().creator_pid()}",
+                                f"Created On: {datetime.fromtimestamp(self.zendure_battery_b_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.battery_b:
                 bat_lines_b += [""] + format_zendure(self.data["zendure"]["b"], self.details)
 
             bat_control_lines = []
+            if self.zendure_control_area and self.zendure_control_area.endpoint():
+                bat_control_lines += [f"Owner Active: {self.zendure_control_area.endpoint().is_owner_active()}",
+                                      f"Creator PID: {self.zendure_control_area.endpoint().creator_pid()}",
+                                      f"Created On: {datetime.fromtimestamp(self.zendure_control_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.zendure_control:
                 bat_control_lines += [""] + format_zendure_control(self.data["zendure"]["control"], self.details)
 
             weather_lines = []
+            if self.weather_current_area and self.weather_current_area.endpoint():
+                weather_lines += [f"Owner Active: {self.weather_current_area.endpoint().is_owner_active()}",
+                                  f"Creator PID: {self.weather_current_area.endpoint().creator_pid()}",
+                                  f"Created On: {datetime.fromtimestamp(self.weather_current_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
             if self.weather:
                 weather_lines += ["", "-- CURRENT --"] + format_weather_current(self.data["weather"]["current"], self.details) + \
                                  ["", "-- FORECAST --"] + format_weather_forecast(self.data["weather"]["forecast"], self.details)
