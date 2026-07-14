@@ -19,7 +19,8 @@ table ControlStatus {
     target_soc: ubyte;          // 0..100, SOC to achieve; triggers forced nightly charging is below
     is_night:  bool;            // In nightly period when most house hold activity is low
     is_day: bool;               // In period that solar PV can produce power
-    ev_charging: bool;          // Electric vehicle is charging 
+    ev_charging: bool;          // Electric vehicle is charging
+    sliding_grid_load: float;   // Sliding Grid Load
     linear_change_cap: uint;    // Maximum relative change of target power per second
     battery_a: Battery;         // Battery A (Phase A)
     battery_b: Battery;         // Battery B (Phase C)

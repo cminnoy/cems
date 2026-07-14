@@ -88,7 +88,6 @@ table BatteryStatus {
     fm_volt: int;                   // FMVolt (Activation voltage)
     iot_state: int;
     ota_state: int;
-    lcn_state: int;
     bind_state: int;
     volt_wakeup: int;
     time_zone: string;              // timeZone (Region descriptor string)
