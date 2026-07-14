@@ -23,28 +23,32 @@ int exit_code = EXIT_SUCCESS;
 
 std::pmr::unsynchronized_pool_resource memory_pool;
 std::pmr::string component_name(&memory_pool);
+std::pmr::string component_realm(&memory_pool);
 double clock_frequency = 1.0;
 double clock_period = 1.0;
-int thread_priority = 0;
+int thread_priority = 10;
 
 void print_help() {
-    std::cout << "Usage:\n";
-    std::cout << "  master_clock [-n|--name <component_name>] [-p|--priority <priority>] [-f|--frequency <frequency>]\n";
-    std::cout << "Options:\n";
-    std::cout << "  -n, --name <component_name>\n";
-    std::cout << "      Specify the component name [mandatory]\n";
-    std::cout << "  -p, --priority <priority>\n";
-    std::cout << "      Specify the real-time thread priority [optional, default: min+1]\n";
-    std::cout << "  -f, --frequency <frequency>\n";
-    std::cout << "      Specify the clock frequency in Hz [optional, default: 1.0]\n";
-    std::cout << "  -h, --help\n";
-    std::cout << "      Display this help and exit\n";
+    std::cout << "Usage:\n"
+                 "  master_clock [-n|--name <component_name>] [-p|--priority <priority>] [-f|--frequency <frequency>]\n"
+                 "Options:\n"
+                 "  -n, --name <component_name>\n"
+                 "      Specify the component name [mandatory]\n"
+                 "  -r, --realm <component_realm>\n"
+                 "      Specify the component realm [mandatory]\n"
+                 "  -p, --priority <priority>\n"
+                 "      Set the priority of the real time process [default: 10]\n"
+                 "  -f, --frequency <frequency>\n"
+                 "      Specify the clock frequency in Hz [optional, default: 1.0]\n"
+                 "  -h, --help\n"
+                 "      Display this help and exit\n";
     std::cout.flush();
 }
 
 void parse_args(int argc, char *argv[]) {
     static struct option long_options[] = {
         {"name", required_argument, nullptr, 'n'},
+        {"realm", required_argument, nullptr, 'r'},
         {"priority", required_argument, nullptr, 'p'},
         {"frequency", required_argument, nullptr, 'f'},
         {"help", no_argument, nullptr, 'h'},
@@ -52,13 +56,20 @@ void parse_args(int argc, char *argv[]) {
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "n:p:f:h", long_options, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "n:r:p:f:h", long_options, nullptr)) != -1) {
         switch (opt) {
             case 'n':
                 component_name = optarg;
                 break;
+            case 'r':
+                component_realm = optarg;
+                break;
             case 'p':
-                thread_priority = std::stoi(optarg);
+                thread_priority = std::atoi(optarg);
+                if (thread_priority < sched_get_priority_min(SCHED_RR) or thread_priority > sched_get_priority_max(SCHED_RR)) {
+                    std::cerr << "Error: Priority must be between " << sched_get_priority_min(SCHED_RR) << " and " << sched_get_priority_max(SCHED_RR) << ".\n";
+                    exit(EXIT_FAILURE);
+                }
                 break;
             case 'f': {
                 clock_frequency = std::stod(optarg);
@@ -82,6 +93,10 @@ void parse_args(int argc, char *argv[]) {
         std::cerr << "Error: Component name is mandatory. Use -h for help.\n";
         exit(EXIT_FAILURE);
     }
+    if (component_realm.empty()) {
+        std::cerr << "Error: Component realm is mandatory. Use -h for help.\n";
+        exit(EXIT_FAILURE);
+    }
 }
 
 class master_clock final : public fabrix::component {
@@ -90,7 +105,7 @@ class master_clock final : public fabrix::component {
 
 public:
 
-    master_clock(std::pmr::memory_resource * const memory_resource, std::string_view name, std::string_view realm = "cems", std::size_t const size = 65536)
+    master_clock(std::pmr::memory_resource * const memory_resource, std::string_view name, std::string_view realm, std::size_t const size = 65536)
     : fabrix::component(memory_resource, name, realm, size)
     {
         // Create area
@@ -142,8 +157,8 @@ protected:
                   << std::endl;
     }
 
-    bool on_subscribe_response(endpoint_type sender_endpoint, MAYBE_UNUSED endpoint_type delivery_endpoint, std::string_view topic_name, error_type error_code) override {
-        if (error_code == error_type::OK) {
+    bool on_subscribe_request(endpoint_type sender_endpoint, MAYBE_UNUSED endpoint_type delivery_endpoint, std::string_view topic_name) override {
+        if (topic_name == TOPIC_NAME_CLOCK_TICK) {
             std::clog << "Request 'subscribe' from sender '" << sender_endpoint.identifier().name() << "' on topic '" << topic_name.data() << '\'';
             if (!(delivery_endpoint == sender_endpoint)) std::clog << " with delivery point " << delivery_endpoint.identifier().name();
             std::clog << " accepted." << std::endl;
@@ -152,14 +167,12 @@ protected:
         return false;
     }
 
-    bool on_unsubscribe_response(endpoint_type sender_endpoint, MAYBE_UNUSED endpoint_type delivery_endpoint, std::string_view topic_name, MAYBE_UNUSED error_type error_code) override {
-        if (error_code == error_type::OK) {
-            if (topic_name == TOPIC_NAME_CLOCK_TICK) {
-                std::clog << "Request 'unsubscribe' from sender '" << sender_endpoint.identifier().name() << "' on topic '" << topic_name.data() << '\'';
-                if (delivery_endpoint) std::clog << " with delivery point " << delivery_endpoint.identifier().name();
-                std::clog << " accepted." << std::endl;
-                return true;
-            }
+    bool on_unsubscribe_request(endpoint_type sender_endpoint, MAYBE_UNUSED endpoint_type delivery_endpoint, std::string_view topic_name) override {
+        if (topic_name == TOPIC_NAME_CLOCK_TICK) {
+            std::clog << "Request 'unsubscribe' from sender '" << sender_endpoint.identifier().name() << "' on topic '" << topic_name.data() << '\'';
+            if (delivery_endpoint) std::clog << " with delivery point " << delivery_endpoint.identifier().name();
+            std::clog << " accepted." << std::endl;
+            return true;
         }
         return false;
     }
@@ -227,13 +240,12 @@ int main(int argc, char *argv[]) {
     // Use real-time scheduling policy.
     int const min_priority = sched_get_priority_min(SCHED_RR);
     int const max_priority = sched_get_priority_max(SCHED_RR);
-    thread_priority = std::min(std::max(thread_priority, min_priority), max_priority);
     struct sched_param param;
-    param.sched_priority = thread_priority;
+    param.sched_priority = std::min(std::max(thread_priority, min_priority), max_priority);
     sched_setscheduler(0, SCHED_RR, &param);
 
     // Execute component
-    master_clock(&memory_pool, component_name, "cems", 65536).run(std::chrono::duration<double>(clock_period));
+    master_clock(&memory_pool, component_name, component_realm, 65536).run(std::chrono::duration<double>(clock_period));
 
     // Cleanup
     std::signal(SIGINT, SIG_DFL);

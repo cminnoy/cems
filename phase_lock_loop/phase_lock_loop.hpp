@@ -7,7 +7,7 @@
 
 class phase_lock_loop {
 public:
-    explicit phase_lock_loop(double frequency_hz)
+    explicit phase_lock_loop(double frequency_hz) noexcept
         : nominal_frequency_(frequency_hz)
         , period_ns_(static_cast<long long>(1e9 / frequency_hz))
         , next_tick_(std::chrono::system_clock::now())
@@ -17,7 +17,11 @@ public:
      * @brief Align internal timeline with the master clock.
      */
     void synchronize(double master_timestamp_s) {
-        auto const master_time = std::chrono::system_clock::from_time_t(static_cast<time_t>(master_timestamp_s));
+        auto const master_time = std::chrono::system_clock::time_point(
+            std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                std::chrono::duration<double>(master_timestamp_s)
+            )
+        );
         auto const raw_error_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(master_time - next_tick_).count();
 
         // Shortest-path phase wrapping: $Error \in [-\frac{P}{2}, \frac{P}{2}]$
@@ -27,19 +31,19 @@ public:
         adjustment_ns_ = wrapped_error_ns / 10;
     }
 
-    void set_lead_time(std::chrono::nanoseconds duration) {
-        lead_time_ = std::chrono::nanoseconds(static_cast<long long>(duration.count() * 1.2));
+    void set_lead_time(std::chrono::nanoseconds duration) noexcept {
+        lead_time_ = std::chrono::nanoseconds(static_cast<long long>(duration.count()));
     }
 
-    void advance() {
+    void advance() noexcept {
         next_tick_ += std::chrono::nanoseconds(period_ns_ + adjustment_ns_);
         adjustment_ns_ = 0;
     }
 
-    double frequency() const { return nominal_frequency_; }
+    auto frequency() const noexcept { return nominal_frequency_; }
 
-    std::chrono::system_clock::time_point at_tick() const { return next_tick_; }
-    std::chrono::system_clock::time_point pre_tick() const { return next_tick_ - lead_time_; }
+    std::chrono::system_clock::time_point at_tick() const noexcept { return next_tick_; }
+    std::chrono::system_clock::time_point pre_tick() const noexcept { return next_tick_ - lead_time_; }
 
 private:
     double const nominal_frequency_;

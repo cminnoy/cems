@@ -27,11 +27,13 @@ int exit_code = EXIT_SUCCESS;
 
 std::pmr::unsynchronized_pool_resource memory_pool;
 std::pmr::string component_name(&memory_pool);
+std::pmr::string component_realm(&memory_pool);
 std::pmr::string device_name("/dev/elkor", &memory_pool);
 std::pmr::string master_clock_name(&memory_pool);
 double read_frequency_hz = 1.0;
 std::uint8_t scan_start_address = 3;
 std::uint8_t scan_end_address = 3;
+int thread_priority = 10;
 bool verbose = false;
 
 void print_help() {
@@ -40,6 +42,8 @@ void print_help() {
                  "Options:\n"
                  "  -n, --name <component_name>\n"
                  "      Specify the component name [mandatory]\n"
+                 "  -r, --realm <component_realm>\n"
+                 "      Specify the component realm [mandatory]\n"
                  "  -d, --device <device>\n"
                  "      Specify the device name [default: /dev/elkor]\n"
                  "  -s, --slave <start_address>:<end_address>\n"
@@ -48,6 +52,8 @@ void print_help() {
                  "      Specify the master clock component [optional]\n"
                  "  -f, --frequency <Hz>\n"
                  "      Set the frequency [default: 1]\n"
+                 "  -p, --priority <priority>\n"
+                 "      Set the priority of the real time process [default: 10]\n"
                  "  -v, --verbose\n"
                  "      Enable verbose output\n"
                  "  -h, --help\n"
@@ -58,22 +64,27 @@ void print_help() {
 void parse_args(int argc, char *argv[]) {
     static struct option long_options[] = {
         {"name", required_argument, nullptr, 'n'},
+        {"realm", required_argument, nullptr, 'r'},
         {"device", optional_argument, nullptr, 'd'},
         {"slave", optional_argument, nullptr, 's'},
         {"clock", required_argument, nullptr, 'c'},
         {"frequency", required_argument, nullptr, 'f'},
+        {"priority", required_argument, nullptr, 'p'},
         {"verbose", no_argument, nullptr, 'v'},
         {"help", no_argument, nullptr, 'h'},
         {0, 0, 0, 0}
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "n:d:s:c:f:vh", long_options, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "n:r:d:s:c:f:p:vh", long_options, nullptr)) != -1) {
         char * token;
         int address;
         switch (opt) {
             case 'n':
                 component_name = optarg;
+                break;
+            case 'r':
+                component_realm = optarg;
                 break;
             case 'd':
                 device_name = optarg;
@@ -118,6 +129,13 @@ void parse_args(int argc, char *argv[]) {
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'p':
+                thread_priority = std::atoi(optarg);
+                if (thread_priority < sched_get_priority_min(SCHED_RR) or thread_priority > sched_get_priority_max(SCHED_RR)) {
+                    std::cerr << "Error: Priority must be between " << sched_get_priority_min(SCHED_RR) << " and " << sched_get_priority_max(SCHED_RR) << ".\n";
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case 'v':
                 verbose = true;
                 break;
@@ -157,6 +175,7 @@ MAYBE_UNUSED std::ostream & operator<<(std::ostream & out, CEMS::Elkor::InstantR
         << ANSI_TOK "," ANSI_LBL "phase_a_voltage_to_b"             ANSI_TOK ":" ANSI_NRM << o.phase_a_voltage_to_b()
         << ANSI_TOK "," ANSI_LBL "phase_a_reactive_power"           ANSI_TOK ":" ANSI_NRM << o.phase_a_reactive_power()
         << ANSI_TOK "," ANSI_LBL "phase_a_apparent_power"           ANSI_TOK ":" ANSI_NRM << o.phase_a_apparent_power()
+        << ANSI_TOK "," ANSI_LBL "phase_a_power_factor"             ANSI_TOK ":" ANSI_NRM << o.phase_a_power_factor()
 
         << ANSI_TOK "," ANSI_LBL "phase_b_real_power"               ANSI_TOK ":" ANSI_NRM << o.phase_b_real_power()
         << ANSI_TOK "," ANSI_LBL "phase_b_current"                  ANSI_TOK ":" ANSI_NRM << o.phase_b_current()
@@ -164,6 +183,7 @@ MAYBE_UNUSED std::ostream & operator<<(std::ostream & out, CEMS::Elkor::InstantR
         << ANSI_TOK "," ANSI_LBL "phase_b_voltage_to_c"             ANSI_TOK ":" ANSI_NRM << o.phase_b_voltage_to_c()
         << ANSI_TOK "," ANSI_LBL "phase_b_reactive_power"           ANSI_TOK ":" ANSI_NRM << o.phase_b_reactive_power()
         << ANSI_TOK "," ANSI_LBL "phase_b_apparent_power"           ANSI_TOK ":" ANSI_NRM << o.phase_b_apparent_power()
+        << ANSI_TOK "," ANSI_LBL "phase_b_power_factor"             ANSI_TOK ":" ANSI_NRM << o.phase_b_power_factor()
 
         << ANSI_TOK "," ANSI_LBL "phase_c_real_power"               ANSI_TOK ":" ANSI_NRM << o.phase_c_real_power()
         << ANSI_TOK "," ANSI_LBL "phase_c_current"                  ANSI_TOK ":" ANSI_NRM << o.phase_c_current()
@@ -171,6 +191,7 @@ MAYBE_UNUSED std::ostream & operator<<(std::ostream & out, CEMS::Elkor::InstantR
         << ANSI_TOK "," ANSI_LBL "phase_c_voltage_to_a"             ANSI_TOK ":" ANSI_NRM << o.phase_c_voltage_to_a()
         << ANSI_TOK "," ANSI_LBL "phase_c_reactive_power"           ANSI_TOK ":" ANSI_NRM << o.phase_c_reactive_power()
         << ANSI_TOK "," ANSI_LBL "phase_c_apparent_power"           ANSI_TOK ":" ANSI_NRM << o.phase_c_apparent_power()
+        << ANSI_TOK "," ANSI_LBL "phase_c_power_factor"             ANSI_TOK ":" ANSI_NRM << o.phase_c_power_factor()
         << ANSI_TOK "}" ANSI_NRM;
     return out;
 }
@@ -227,11 +248,11 @@ public:
 
     elkor(std::pmr::memory_resource * const memory_resource,
           std::string_view name,
+          std::string_view realm,
           std::uint8_t scan_start_address,
           std::uint8_t scan_end_address,
           std::string_view master_clock_name = "",
-          double nominal_frequency_hz = 1.0, 
-          std::string_view realm = "cems",
+          double nominal_frequency_hz = 1.0,
           std::size_t const size = 65536)
     : fabrix::component(memory_resource, name, realm, size)
     , pll_(nominal_frequency_hz)
@@ -251,18 +272,13 @@ public:
     void run() {
         try {
             do {
-                sync_pll();
-
-                // Background Read (Energy)
-                process_until(pll_.pre_tick());
-                auto const t_start = std::chrono::steady_clock::now();
-                read_and_publish_energy();
-                pll_.set_lead_time(std::chrono::steady_clock::now() - t_start);
-
-                // Critical Read (Power)
                 process_until(pll_.at_tick());
                 read_and_publish_instantaneous();
-
+                read_and_publish_energy();
+                pll_.advance();
+                sync_pll();
+                process_until(pll_.at_tick());
+                read_and_publish_instantaneous();
                 pll_.advance();
             } while (!stop);
         } catch (std::exception const & e) {
@@ -381,7 +397,7 @@ private:
         while (itt) {
             if (itt->ReadWattsOnFloatEnergy()) {
                 auto & read_data = itt->wattson_float;
-                auto const now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0;
+                auto const now = std::max(pll_.at_tick().time_since_epoch().count() / 1000000000.0, std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0);
                 CEMS::Elkor::EnergyReading energy_reading {
                     now,
                     read_data.NetTotalEnergy(),
@@ -419,9 +435,9 @@ private:
                     *flatbuffers::GetMutableRoot<CEMS::Elkor::EnergyReading>(storage.get()) = energy_reading;
                     energy_reading_area_.publish_storage(storage);
                     broadcast_topic(TOPIC_NAME_ENERGY_READING, &energy_reading, sizeof(energy_reading));
-                    energy_reading_area_.tick();
-                    energy_reading_area_.reclaim();
                 }
+                energy_reading_area_.tick();
+                energy_reading_area_.reclaim();
             }
             itt = elkor_interface_.GetNextDevice(itt);
         }
@@ -433,7 +449,7 @@ private:
         while (itt) {
             if (itt->ReadWattsOnFloatInstant()) {
                 auto & read_data = itt->wattson_float;
-                double const now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0;
+                double const now = std::max(pll_.at_tick().time_since_epoch().count() / 1000000000.0, std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0);
                 CEMS::Elkor::InstantReading msg {
                     now,
                     read_data.Frequency(),
@@ -473,9 +489,9 @@ private:
                     *flatbuffers::GetMutableRoot<CEMS::Elkor::InstantReading>(storage.get()) = msg;
                     instant_reading_area_.publish_storage(storage);
                     broadcast_topic(TOPIC_NAME_INSTANT_READING, &msg, sizeof(msg));
-                    instant_reading_area_.tick();
-                    instant_reading_area_.reclaim();
                 }
+                instant_reading_area_.tick();
+                instant_reading_area_.reclaim();
             }
             itt = elkor_interface_.GetNextDevice(itt);
         }
@@ -515,15 +531,14 @@ int main(int argc, char *argv[]) {
     int const min_priority = sched_get_priority_min(SCHED_RR);
     int const max_priority = sched_get_priority_max(SCHED_RR);
     struct sched_param param;
-    int const my_priority = min_priority + 1;
-    param.sched_priority = std::min(std::max(my_priority, min_priority), max_priority);
+    param.sched_priority = std::min(std::max(thread_priority, min_priority), max_priority);
     sched_setscheduler(0, SCHED_RR, &param);
 
     // Use polymorphic memory system for memory management
     std::pmr::set_default_resource(&memory_pool);
 
     // Execute component
-    elkor(&memory_pool, component_name, scan_start_address, scan_end_address, master_clock_name, read_frequency_hz).run();
+    elkor(&memory_pool, component_name, component_realm, scan_start_address, scan_end_address, master_clock_name, read_frequency_hz).run();
 
     // Cleanup
     std::signal(SIGINT, SIG_DFL);

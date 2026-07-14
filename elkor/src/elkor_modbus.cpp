@@ -1,4 +1,4 @@
-/* Copyright 2012-2020 Chris Minnoy */
+/* Copyright 2012-2026 Chris Minnoy */
 
 #include <elkor_modbus.hpp>
 #include <modbus/modbus.h>
@@ -7,23 +7,24 @@
 #include <cstdio>
 #include <cstring>
 #include <cassert>
+#include <cmath>
 #include <new>
 #include <thread>
 #include <iostream>
 
-//
+// TODO Remove new/delete and use a std::pmr container
+
 // Auxilary functions
 // ==================
 
-std::ostream & operator<<(std::ostream & out, const ElkorModbusInterface &data) {
+std::ostream & operator<<(std::ostream & out, const ElkorModbusInterface & data) {
 	WattsOnModbusInterface * itt = data.GetFirstDevice();
 	while (itt) {
 		out << '{' << itt->Port() << ',' << itt->SlaveNumber() << ',' << itt->BaudRate() << '}' << std::endl;
 		itt = data.GetNextDevice(itt);
-	} // while
+	}
 	return out;
 }
-
 
 std::ostream & operator<<(std::ostream & out, const WattsOnModbusInterface::WattsOnFloat &data) {
     char s[256];
@@ -177,106 +178,96 @@ std::ostream & operator<<(std::ostream & out, const WattsOnModbusInterface::Watt
     return out;
 }
 
-
-inline void swap_lr(uint32_t *po) {
-    uint16_t * p = reinterpret_cast<uint16_t*>(po);
-    uint16_t t = p[0];
-    p[0] = p[1];
-    p[1] = t;
+constexpr std::uint32_t swap_lr(std::uint32_t v) {
+   return (v << 16) | (v >> 16);
 }
 
-inline void swap_lr(int32_t *po) {
-    int16_t * p = reinterpret_cast<int16_t*>(po);
-    int16_t t = p[0];
-    p[0] = p[1];
-    p[1] = t;
+float swap_lr(float value) {
+    static_assert(sizeof(float) == sizeof(std::uint32_t), "float must be 4 bytes");
+    std::uint32_t temp;
+    std::memcpy(&temp, &value, sizeof(temp));
+    temp = swap_lr(temp);
+    std::memcpy(&value, &temp, sizeof(value));
+    return value;
 }
-
-inline void swap_lr(float *po) {
-    uint16_t * p = reinterpret_cast<uint16_t*>(po);
-    uint16_t t = p[0];
-    p[0] = p[1];
-    p[1] = t;
-}
-
 
 //
 // WattsOnModBusInterface::WattsOnConfiguration
 // ============================================
 
-int WattsOnModbusInterface::WattsOnConfiguration::PTRatioPrimary(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::PTRatioPrimary(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_PT_RATIO_PRIMARY, value);
     if (mb_error == 1) pt_ratio_primary = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::PTRatioSecondary(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::PTRatioSecondary(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_PT_RATIO_SECONDARY, value);
     if (mb_error == 1) pt_ratio_secondary = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::CTRatioPrimary(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::CTRatioPrimary(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_CT_RATIO_PRIMARY, value);
 	if (mb_error == 1) ct_ratio_primary = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::CTRatioSecondary(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::CTRatioSecondary(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_CT_RATIO_SECONDARY, value);
 	if (mb_error == 1) ct_ratio_secondary = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::DemandPeriod(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::DemandPeriod(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_DEMAND_PERIOD, value);
     if (mb_error == 1) demand_period = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::PulseValue(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::PulseValue(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_PULSE_VALUE, value);
     if (mb_error == 1) pulse_value = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputASource(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputASource(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_A_SOURCE, value);
     if (mb_error == 1) output_a_source = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputBSource(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputBSource(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_B_SOURCE, value);
     if (mb_error == 1) output_b_source = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputA0VValue(int16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputA0VValue(std::int16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_A_0V_VALUE, value);
     if (mb_error == 1) output_a_0v_value = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputB0VValue(int16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputB0VValue(std::int16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_B_0V_VALUE, value);
     if (mb_error == 1) output_b_0v_value = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputA10VValue(int16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputA10VValue(std::int16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_A_10V_VALUE, value);
     if (mb_error == 1) output_a_10v_value = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::OutputB10VValue(int16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::OutputB10VValue(std::int16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_OUTPUT_B_10V_VALUE, value);
     if (mb_error == 1) output_b_10v_value = value;
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnConfiguration::ConfigurationWord(uint16_t value) {
+int WattsOnModbusInterface::WattsOnConfiguration::ConfigurationWord(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_CONFIGURATION_WORD, value);
     if (mb_error == 1) configuration_word.word = value;
     return mb_error;
@@ -418,56 +409,56 @@ int WattsOnModbusInterface::WattsOnConfiguration::Split240VLoad(bool value) {
 // WattsOnModBusInterface::WattsOnScratchPad
 // =========================================
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad1(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad1(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD1, value);
     if (mb_error == 1) scratch_pad_1 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad2(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad2(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD2, value);
     if (mb_error == 1) scratch_pad_2 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad3(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad3(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD3, value);
     if (mb_error == 1) scratch_pad_3 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad4(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad4(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD4, value);
     if (mb_error == 1) scratch_pad_4 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad5(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad5(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD5, value);
     if (mb_error == 1) scratch_pad_5 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad6(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad6(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD6, value);
     if (mb_error == 1) scratch_pad_6 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad7(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad7(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD7, value);
     if (mb_error == 1) scratch_pad_7 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return mb_error;
 }
 
-int WattsOnModbusInterface::WattsOnScratchPad::Pad8(uint16_t value) {
+int WattsOnModbusInterface::WattsOnScratchPad::Pad8(std::uint16_t value) {
  	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_SCRATCHPAD8, value);
     if (mb_error == 1) scratch_pad_8 = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -479,7 +470,7 @@ int WattsOnModbusInterface::WattsOnScratchPad::Pad8(uint16_t value) {
 // WattsOnModBusInterface::WattsOnExtendedConfiguration
 // ====================================================
 
-int WattsOnModbusInterface::WattsOnExtendedConfiguration::ExtendedConfigurationWord(uint16_t value) {
+int WattsOnModbusInterface::WattsOnExtendedConfiguration::ExtendedConfigurationWord(std::uint16_t value) {
 	int mb_error = modbus_write_register(parent_->mb_ctx_, WATTSON_INT_EXTENDED_CONFIGURATION_WORD, value);
     if (mb_error >= 0) extended_configuration_word.word = value;
 	std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -600,9 +591,8 @@ int WattsOnModbusInterface::Connect(const char linux_device_driver[], const int 
 }
 
 int WattsOnModbusInterface::CheckConnection() {
-    uint16_t value;
-	int mb_error;
-    mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_DEBUG, 1, &value);
+    std::uint16_t value;
+    int mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_DEBUG, 1, &value);
     if (mb_error != 1) return mb_error;
     if (value != 0x3039) return -1;
     return 0;
@@ -611,6 +601,7 @@ int WattsOnModbusInterface::CheckConnection() {
 void WattsOnModbusInterface::Disconnect() {
     modbus_close(mb_ctx_);
 	modbus_free(mb_ctx_);
+    mb_ctx_ = nullptr;
 }
 
 void WattsOnModbusInterface::EnableDebug() {
@@ -628,98 +619,100 @@ char const * WattsOnModbusInterface::Error(int error_number) const {
 bool WattsOnModbusInterface::ReadWattsOnFloatInstant() {
     if (-1 == modbus_read_registers(mb_ctx_, WATTSON_FLOAT_TOTAL_REAL_POWER, 60, reinterpret_cast<uint16_t*>(&wattson_float.total_real_power))) return false;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    swap_lr(&wattson_float.total_real_power);
-    swap_lr(&wattson_float.total_reactive_power);
-    swap_lr(&wattson_float.total_apparent_power);
-    swap_lr(&wattson_float.average_voltage_l_n);
-    swap_lr(&wattson_float.average_voltage_l_l);
-    swap_lr(&wattson_float.average_current);
-    swap_lr(&wattson_float.total_system_power_factor);
-    swap_lr(&wattson_float.frequency);
-    swap_lr(&wattson_float.sliding_window_real_power_demand);
-    swap_lr(&wattson_float.voltage_phase_a_n);
-    swap_lr(&wattson_float.voltage_phase_b_n);
-    swap_lr(&wattson_float.voltage_phase_c_n);
-    swap_lr(&wattson_float.voltage_phase_a_b);
-    swap_lr(&wattson_float.voltage_phase_b_c);
-    swap_lr(&wattson_float.voltage_phase_a_c);
-    swap_lr(&wattson_float.current_phase_a);
-    swap_lr(&wattson_float.current_phase_b);
-    swap_lr(&wattson_float.current_phase_c);
-    swap_lr(&wattson_float.real_power_phase_a);
-    swap_lr(&wattson_float.real_power_phase_b);
-    swap_lr(&wattson_float.real_power_phase_c);
-    swap_lr(&wattson_float.reactive_power_phase_a);
-    swap_lr(&wattson_float.reactive_power_phase_b);
-    swap_lr(&wattson_float.reactive_power_phase_c);
-    swap_lr(&wattson_float.apparent_power_phase_a);
-    swap_lr(&wattson_float.apparent_power_phase_b);
-    swap_lr(&wattson_float.apparent_power_phase_c);
-    swap_lr(&wattson_float.power_factor_phase_a);
-    swap_lr(&wattson_float.power_factor_phase_b);
-    swap_lr(&wattson_float.power_factor_phase_c);
+    wattson_float.total_real_power = swap_lr(wattson_float.total_real_power);
+    wattson_float.total_reactive_power = swap_lr(wattson_float.total_reactive_power);
+    wattson_float.total_apparent_power = swap_lr(wattson_float.total_apparent_power);
+    wattson_float.average_voltage_l_n = swap_lr(wattson_float.average_voltage_l_n);
+    wattson_float.average_voltage_l_l = swap_lr(wattson_float.average_voltage_l_l);
+    wattson_float.average_current = swap_lr(wattson_float.average_current);
+    wattson_float.total_system_power_factor = swap_lr(wattson_float.total_system_power_factor);
+    wattson_float.frequency = swap_lr(wattson_float.frequency);
+    wattson_float.sliding_window_real_power_demand = swap_lr(wattson_float.sliding_window_real_power_demand);
+    wattson_float.voltage_phase_a_n = swap_lr(wattson_float.voltage_phase_a_n);
+    wattson_float.voltage_phase_b_n = swap_lr(wattson_float.voltage_phase_b_n);
+    wattson_float.voltage_phase_c_n = swap_lr(wattson_float.voltage_phase_c_n);
+    wattson_float.voltage_phase_a_b = swap_lr(wattson_float.voltage_phase_a_b);
+    wattson_float.voltage_phase_b_c = swap_lr(wattson_float.voltage_phase_b_c);
+    wattson_float.voltage_phase_a_c = swap_lr(wattson_float.voltage_phase_a_c);
+    wattson_float.current_phase_a = swap_lr(wattson_float.current_phase_a);
+    wattson_float.current_phase_b = swap_lr(wattson_float.current_phase_b);
+    wattson_float.current_phase_c = swap_lr(wattson_float.current_phase_c);
+    wattson_float.real_power_phase_a = swap_lr(wattson_float.real_power_phase_a);
+    wattson_float.real_power_phase_b = swap_lr(wattson_float.real_power_phase_b);
+    wattson_float.real_power_phase_c = swap_lr(wattson_float.real_power_phase_c);
+    wattson_float.reactive_power_phase_a = swap_lr(wattson_float.reactive_power_phase_a);
+    wattson_float.reactive_power_phase_b = swap_lr(wattson_float.reactive_power_phase_b);
+    wattson_float.reactive_power_phase_c = swap_lr(wattson_float.reactive_power_phase_c);
+    wattson_float.apparent_power_phase_a = swap_lr(wattson_float.apparent_power_phase_a);
+    wattson_float.apparent_power_phase_b = swap_lr(wattson_float.apparent_power_phase_b);
+    wattson_float.apparent_power_phase_c = swap_lr(wattson_float.apparent_power_phase_c);
+    wattson_float.power_factor_phase_a = swap_lr(wattson_float.power_factor_phase_a);
+    wattson_float.power_factor_phase_b = swap_lr(wattson_float.power_factor_phase_b);
+    wattson_float.power_factor_phase_c = swap_lr(wattson_float.power_factor_phase_c);
 #endif
+    if (std::isnan(wattson_float.power_factor_phase_a)) wattson_float.power_factor_phase_a = 0.0f;
+    if (std::isnan(wattson_float.power_factor_phase_b)) wattson_float.power_factor_phase_b = 0.0f;
+    if (std::isnan(wattson_float.power_factor_phase_c)) wattson_float.power_factor_phase_c = 0.0f;
+    if (std::isnan(wattson_float.total_system_power_factor)) {
+        wattson_float.total_system_power_factor = (wattson_float.power_factor_phase_a + wattson_float.power_factor_phase_b + wattson_float.power_factor_phase_c) / 3.0;
+    }
     return true;
 }
 
 bool WattsOnModbusInterface::ReadWattsOnFloatEnergy() {
     if (-1 == modbus_read_registers(mb_ctx_, WATTSON_FLOAT_IMPORT_ENERGY_PHASE_A, 56, reinterpret_cast<uint16_t*>(&wattson_float.import_energy_phase_a))) return false;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    swap_lr(&wattson_float.import_energy_phase_a);
-    swap_lr(&wattson_float.import_energy_phase_b);
-    swap_lr(&wattson_float.import_energy_phase_c);
-    swap_lr(&wattson_float.total_import_energy);
-    swap_lr(&wattson_float.export_energy_phase_a);
-    swap_lr(&wattson_float.export_energy_phase_b);
-    swap_lr(&wattson_float.export_energy_phase_c);
-    swap_lr(&wattson_float.total_export_energy);
-    swap_lr(&wattson_float.net_energy_phase_a);
-    swap_lr(&wattson_float.net_energy_phase_b);
-    swap_lr(&wattson_float.net_energy_phase_c);
-    swap_lr(&wattson_float.net_total_energy);
-    swap_lr(&wattson_float.inductive_energy_phase_a);
-    swap_lr(&wattson_float.inductive_energy_phase_b);
-    swap_lr(&wattson_float.inductive_energy_phase_c);
-    swap_lr(&wattson_float.total_inductive_energy);
-    swap_lr(&wattson_float.capacitive_energy_phase_a);
-    swap_lr(&wattson_float.capacitive_energy_phase_b);
-    swap_lr(&wattson_float.capacitive_energy_phase_c);
-    swap_lr(&wattson_float.total_capacitive_energy);
-    swap_lr(&wattson_float.net_reactive_energy_phase_a);
-    swap_lr(&wattson_float.net_reactive_energy_phase_b);
-    swap_lr(&wattson_float.net_reactive_energy_phase_c);
-    swap_lr(&wattson_float.net_total_reactive_energy);
-    swap_lr(&wattson_float.apparent_energy_phase_a);
-    swap_lr(&wattson_float.apparent_energy_phase_b);
-    swap_lr(&wattson_float.apparent_energy_phase_c);
-    swap_lr(&wattson_float.total_apparent_energy);
+    wattson_float.import_energy_phase_a = swap_lr(wattson_float.import_energy_phase_a);
+    wattson_float.import_energy_phase_b = swap_lr(wattson_float.import_energy_phase_b);
+    wattson_float.import_energy_phase_c = swap_lr(wattson_float.import_energy_phase_c);
+    wattson_float.total_import_energy = swap_lr(wattson_float.total_import_energy);
+    wattson_float.export_energy_phase_a = swap_lr(wattson_float.export_energy_phase_a);
+    wattson_float.export_energy_phase_b = swap_lr(wattson_float.export_energy_phase_b);
+    wattson_float.export_energy_phase_c = swap_lr(wattson_float.export_energy_phase_c);
+    wattson_float.total_export_energy = swap_lr(wattson_float.total_export_energy);
+    wattson_float.net_energy_phase_a = swap_lr(wattson_float.net_energy_phase_a);
+    wattson_float.net_energy_phase_b = swap_lr(wattson_float.net_energy_phase_b);
+    wattson_float.net_energy_phase_c = swap_lr(wattson_float.net_energy_phase_c);
+    wattson_float.net_total_energy = swap_lr(wattson_float.net_total_energy);
+    wattson_float.inductive_energy_phase_a = swap_lr(wattson_float.inductive_energy_phase_a);
+    wattson_float.inductive_energy_phase_b = swap_lr(wattson_float.inductive_energy_phase_b);
+    wattson_float.inductive_energy_phase_c = swap_lr(wattson_float.inductive_energy_phase_c);
+    wattson_float.total_inductive_energy = swap_lr(wattson_float.total_inductive_energy);
+    wattson_float.capacitive_energy_phase_a = swap_lr(wattson_float.capacitive_energy_phase_a);
+    wattson_float.capacitive_energy_phase_b = swap_lr(wattson_float.capacitive_energy_phase_b);
+    wattson_float.capacitive_energy_phase_c = swap_lr(wattson_float.capacitive_energy_phase_c);
+    wattson_float.total_capacitive_energy = swap_lr(wattson_float.total_capacitive_energy);
+    wattson_float.net_reactive_energy_phase_a = swap_lr(wattson_float.net_reactive_energy_phase_a);
+    wattson_float.net_reactive_energy_phase_b = swap_lr(wattson_float.net_reactive_energy_phase_b);
+    wattson_float.net_reactive_energy_phase_c = swap_lr(wattson_float.net_reactive_energy_phase_c);
+    wattson_float.net_total_reactive_energy = swap_lr(wattson_float.net_total_reactive_energy);
+    wattson_float.apparent_energy_phase_a = swap_lr(wattson_float.apparent_energy_phase_a);
+    wattson_float.apparent_energy_phase_b = swap_lr(wattson_float.apparent_energy_phase_b);
+    wattson_float.apparent_energy_phase_c = swap_lr(wattson_float.apparent_energy_phase_c);
+    wattson_float.total_apparent_energy = swap_lr(wattson_float.total_apparent_energy);
 #endif
     return true;
 }
 
 int WattsOnModbusInterface::ReadWattsOnConfiguration() {
-	int mb_error;
-    mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_PT_RATIO_PRIMARY, 15, reinterpret_cast<uint16_t*>(&wattson_configuration.pt_ratio_primary));
+    int mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_PT_RATIO_PRIMARY, 15, reinterpret_cast<uint16_t*>(&wattson_configuration.pt_ratio_primary));
     return mb_error;
 }
 
 int WattsOnModbusInterface::ReadWattsOnScratchPad() {
-	int mb_error;
-    mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_SERIAL_NUMBER, 9, reinterpret_cast<uint16_t*>(&wattson_scratchpad.serial_number));
+    int mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_SERIAL_NUMBER, 9, reinterpret_cast<uint16_t*>(&wattson_scratchpad.serial_number));
     return mb_error;
 }
 
 int WattsOnModbusInterface::ReadWattsOnExtendedConfiguration() {
-	int mb_error;
-    mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_EXTENDED_CONFIGURATION_WORD, 1, reinterpret_cast<uint16_t*>(&wattson_extended_configuration.extended_configuration_word.word));
+    int mb_error = modbus_read_registers(mb_ctx_, WATTSON_INT_EXTENDED_CONFIGURATION_WORD, 1, reinterpret_cast<uint16_t*>(&wattson_extended_configuration.extended_configuration_word.word));
     return mb_error;
 }
 
 int WattsOnModbusInterface::Reset() {
     //* Probably doesn't work, use jumper J1 instead
-    int mb_error;
 	std::this_thread::sleep_for(std::chrono::milliseconds(250)); 	
-	mb_error = modbus_write_register(mb_ctx_, WATTSON_INT_RESET, 0xA5A5);
+	int mb_error = modbus_write_register(mb_ctx_, WATTSON_INT_RESET, 0xA5A5);
     if (mb_error != 1) return mb_error;
 	std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	mb_error = modbus_write_register(mb_ctx_, WATTSON_INT_RESET, 0x5A5A);
@@ -745,7 +738,7 @@ unsigned int ElkorModbusInterface::ScanRTUDevices(const char linux_device_driver
 	assert(end_slave_address <= 64);
     //* Scan at 9600 baud
     for (unsigned int slave_address = begin_slave_address; slave_address <= end_slave_address; ++slave_address) {
-        WattsOnModbusInterface * device = new WattsOnModbusInterface();
+        WattsOnModbusInterface * device = new WattsOnModbusInterface;
         int mb_error = device->Connect(linux_device_driver, 9600, slave_address);
         if (mb_error == 0) {
             device->next_ = devices_;
@@ -759,13 +752,13 @@ unsigned int ElkorModbusInterface::ScanRTUDevices(const char linux_device_driver
     //* Scan at 57600 baud when no devices where found at 9600 baud
     if (device_count == 0) {
         for (unsigned int slave_address = 0; slave_address <= 64; ++slave_address) {
-            WattsOnModbusInterface * device = new WattsOnModbusInterface();
+            WattsOnModbusInterface * device = new WattsOnModbusInterface;
             int mb_error = device->Connect(linux_device_driver, 57600, slave_address);
             if (mb_error == 0) {
                 device->next_ = devices_;
                 devices_ = device;
                 ++device_count;
-            } 
+            }
             else {
                 delete device;
             }
@@ -781,5 +774,6 @@ void ElkorModbusInterface::ClearDeviceList() {
 		delete itt;
 		itt = next;
 	}
+    devices_ = nullptr;
 }
 

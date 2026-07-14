@@ -25,18 +25,22 @@ int exit_code = EXIT_SUCCESS;
 
 std::pmr::unsynchronized_pool_resource memory_pool;
 std::pmr::string component_name(&memory_pool);
+std::pmr::string component_realm(&memory_pool);
 std::pmr::string device_name("/dev/circutor", &memory_pool);
 std::pmr::string master_clock_name(&memory_pool);
 double read_frequency_hz = 1.0;
 int slave_address = 1;
+int thread_priority = 10;
 bool verbose = false;
 
 void print_help() {
     std::cout << "Usage:\n"
-                 "  circutor [-n|--name <component_name>] [-d|--device <device>] [-s|--slave <address>] [-c|--clock <component_name>] [-v|--verbose]\n"
+                 "  circutor [-n|--name <component_name>] [-r|--realm <component_realm>] [-d|--device <device>] [-s|--slave <address>] [-c|--clock <component_name>] [-v|--verbose]\n"
                  "Options:\n"
                  "  -n, --name <component_name>\n"
                  "      Specify the component name [mandatory]\n"
+                 "  -r, --realm <component_realm>\n"
+                 "      Specify the component realm [mandatory]\n"
                  "  -d, --device <device>\n"
                  "      Specify the device name [default: /dev/circutor]\n"
                  "  -s, --slave <address>\n"
@@ -45,6 +49,8 @@ void print_help() {
                  "      Specify the master clock component [optional]\n"
                  "  -f, --frequency <Hz>\n"
                  "      Set the frequency [default: 1]\n"
+                 "  -p, --priority <priority>\n"
+                 "      Set the priority of the real time process [default: 10]\n"
                  "  -v, --verbose\n"
                  "      Enable verbose output\n"
                  "  -h, --help\n"
@@ -55,10 +61,12 @@ void print_help() {
 void parse_args(int argc, char *argv[]) {
     static struct option long_options[] = {
         {"name", required_argument, nullptr, 'n'},
+        {"realm", required_argument, nullptr, 'r'},
         {"device", required_argument, nullptr, 'd'},
         {"slave", required_argument, nullptr, 's'},
         {"clock", required_argument, nullptr, 'c'},
         {"frequency", required_argument, nullptr, 'f'},
+        {"priority", required_argument, nullptr, 'p'},
         {"verbose", no_argument, nullptr, 'v'},
         {"help", no_argument, nullptr, 'h'},
         {0, 0, 0, 0}
@@ -67,10 +75,13 @@ void parse_args(int argc, char *argv[]) {
     int opt;
     int this_option_optind = optind ? optind : 1;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "d:s:n:c:f:vh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:s:n:r:c:f:p:vh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'n':
                 component_name = optarg;
+                break;
+            case 'r':
+                component_realm = optarg;
                 break;
             case 'd':
                 device_name = optarg;
@@ -89,6 +100,13 @@ void parse_args(int argc, char *argv[]) {
                 read_frequency_hz = std::atof(optarg);
                 if (read_frequency_hz <= 0.0) {
                     std::cerr << "Error: Frequency must be a positive number.\n";
+                    exit(EXIT_FAILURE);
+                }
+                break;
+            case 'p':
+                thread_priority = std::atoi(optarg);
+                if (thread_priority < sched_get_priority_min(SCHED_RR) or thread_priority > sched_get_priority_max(SCHED_RR)) {
+                    std::cerr << "Error: Priority must be between " << sched_get_priority_min(SCHED_RR) << " and " << sched_get_priority_max(SCHED_RR) << ".\n";
                     exit(EXIT_FAILURE);
                 }
                 break;
@@ -309,11 +327,11 @@ public:
 
     circutor(std::pmr::memory_resource * const memory_resource,
              std::string_view name,
+             std::string_view realm,
              std::string_view device_name,
              int slave_address,
              std::string_view master_clock_name = "",
              double nominal_frequency_hz = 1.0,
-             std::string_view realm = "cems",
              std::size_t const size = 65536)
     : fabrix::component(memory_resource, name, realm, size)
     , pll_(nominal_frequency_hz)
@@ -327,7 +345,7 @@ public:
 
         // Register values for Circutor 0x03E9: 0=9600, 1=19200, 2=38400
         struct BaudRate { int rate; uint16_t reg_val; };
-        std::array<BaudRate, 3> baud_steps = {{{9600, 0}, {19200, 1}, {38400, 2}}};
+        constexpr std::array<BaudRate, 3> baud_steps = {{{9600, 0}, {19200, 1}, {38400, 2}}};
 
         int current_step = -1;
 
@@ -339,7 +357,7 @@ public:
             mb_ctx_ = modbus_new_rtu(device_name_.c_str(), baud, 'N', 8, 1);
             if (!mb_ctx_) return false;
 
-            modbus_set_response_timeout(mb_ctx_, 0, 200000); 
+            modbus_set_response_timeout(mb_ctx_, 0, 200000); // 200ms
             modbus_set_slave(mb_ctx_, slave_address_);
 
             if (modbus_connect(mb_ctx_) == -1) return false;
@@ -362,7 +380,7 @@ public:
         // 2. Try to escalate baud rate step-by-step
         if (current_step != -1) {
             for (int next_step = current_step + 1; next_step < (int)baud_steps.size(); ++next_step) {
-                std::clog << "Attempting upgrade to " << baud_steps[next_step].rate << "..." << std::endl;
+                if (verbose) std::clog << "Attempting upgrade to " << baud_steps[next_step].rate << "..." << std::endl;
 
                 uint16_t val = baud_steps[next_step].reg_val;
                 // Force Function 0x10 instead of 0x06
@@ -375,17 +393,17 @@ public:
                     }
                 } else {
                     // Log WHY the write failed
-                    std::clog << "Write failed: " << modbus_strerror(errno) << std::endl;
+                    if (verbose) std::clog << "Write failed: " << modbus_strerror(errno) << std::endl;
                 }
 
-                std::clog << "Upgrade failed, reverting to " << baud_steps[current_step].rate << std::endl;
+                if (verbose) std::clog << "Upgrade failed, reverting to " << baud_steps[current_step].rate << std::endl;
                 try_connect(baud_steps[current_step].rate);
                 break;
             }
 
             // Final configuration for production use
-            modbus_set_response_timeout(mb_ctx_, 0, 300000); // 300ms
-            std::clog << "Connected at " << baud_steps[current_step].rate << " baud." << std::endl;
+            modbus_set_response_timeout(mb_ctx_, 0, 150000); // 150ms
+            std::clog << "Connected at " << baud_steps[current_step].rate << " baud with response timeout of 150ms." << std::endl;
         } else {
             std::cerr << "Error: Could not establish communication with meter at any baud rate." << std::endl;
             cleanup();
@@ -399,18 +417,11 @@ public:
     void run() {
         try {
             do {
-                sync_pll();
-
-                // Energy
-                process_until(pll_.pre_tick());
-                auto const t_start = std::chrono::steady_clock::now();
-                read_and_publish_energy();
-                pll_.set_lead_time(std::chrono::steady_clock::now() - t_start);
-
-                // Power
                 process_until(pll_.at_tick());
                 read_and_publish_instantaneous();
+                read_and_publish_energy();
                 pll_.advance();
+                sync_pll();
             } while (!stop);
         } catch (std::exception const & e) {
             std::cerr << "Run loop error: " << e.what() << std::endl;
@@ -531,7 +542,7 @@ private:
         read_data.q2_reactive_energy = swap_lr(read_data.q2_reactive_energy);
         read_data.q3_reactive_energy = swap_lr(read_data.q3_reactive_energy);
         read_data.q4_reactive_energy = swap_lr(read_data.q4_reactive_energy);
-        auto const now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0;
+        auto const now = std::max(pll_.at_tick().time_since_epoch().count() / 1000000000.0, std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0);
         CEMS::Circutor::EnergyReading msg {
             now,
             static_cast<std::uint8_t>(slave_address_),
@@ -549,15 +560,27 @@ private:
             *flatbuffers::GetMutableRoot<CEMS::Circutor::EnergyReading>(storage.get()) = msg;
             energy_reading_area_.publish_storage(storage);
             broadcast_topic(TOPIC_NAME_ENERGY_READING, &msg, sizeof(msg));
-            energy_reading_area_.tick();
-            energy_reading_area_.reclaim();
         }
+        energy_reading_area_.tick();
+        energy_reading_area_.reclaim();
     }
 
     void read_and_publish_instantaneous() {
         if (!mb_ctx_) return;
-        if (-1 == modbus_read_registers(mb_ctx_, PHASE1_VOLTAGE, 18, reinterpret_cast<std::uint16_t *>(&read_data.phase1_voltage))) return;
-        if (-1 == modbus_read_registers(mb_ctx_, PHASE1_ACTIVE_POWER, 24, reinterpret_cast<std::uint16_t *>(&read_data.phase1_active_power))) return;
+
+        if (-1 == modbus_read_registers(mb_ctx_, PHASE1_VOLTAGE, 18, reinterpret_cast<std::uint16_t *>(&read_data.phase1_voltage))) {
+            if (errno == ETIMEDOUT) {
+                // Retry once after a short delay
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if (-1 == modbus_read_registers(mb_ctx_, PHASE1_VOLTAGE, 18, reinterpret_cast<std::uint16_t *>(&read_data.phase1_voltage))) {
+                    if (verbose) std::cerr << "Error reading registers (1): " << modbus_strerror(errno) << std::endl;
+                    return;
+                }
+            } else {
+                if (verbose) std::cerr << "Error reading registers (1): " << modbus_strerror(errno) << std::endl;
+                return;
+            }
+        }
         read_data.phase1_voltage = swap_lr(read_data.phase1_voltage);
         read_data.phase2_voltage = swap_lr(read_data.phase2_voltage);
         read_data.phase3_voltage = swap_lr(read_data.phase3_voltage);
@@ -567,6 +590,22 @@ private:
         read_data.phase1_cos_phi = swap_lr(read_data.phase1_cos_phi);
         read_data.phase2_cos_phi = swap_lr(read_data.phase2_cos_phi);
         read_data.phase3_cos_phi = swap_lr(read_data.phase3_cos_phi);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+
+        if (-1 == modbus_read_registers(mb_ctx_, PHASE1_ACTIVE_POWER, 24, reinterpret_cast<std::uint16_t *>(&read_data.phase1_active_power))) {
+            if (errno == ETIMEDOUT) {
+                // Retry once after a short delay
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if (-1 == modbus_read_registers(mb_ctx_, PHASE1_ACTIVE_POWER, 24, reinterpret_cast<std::uint16_t *>(&read_data.phase1_active_power))) {
+                    if (verbose) std::cerr << "Error reading registers (2): " << modbus_strerror(errno) << std::endl;
+                    return;
+                }
+            } else {
+                if (verbose) std::cerr << "Error reading registers (2): " << modbus_strerror(errno) << std::endl;
+                return;
+            }
+        }
         read_data.phase1_active_power = swap_lr(read_data.phase1_active_power);
         read_data.phase2_active_power = swap_lr(read_data.phase2_active_power);
         read_data.phase3_active_power = swap_lr(read_data.phase3_active_power);
@@ -579,7 +618,8 @@ private:
         read_data.phase2_apparent_power = swap_lr(read_data.phase2_apparent_power);
         read_data.phase3_apparent_power = swap_lr(read_data.phase3_apparent_power);
         read_data.total_apparent_power = swap_lr(read_data.total_apparent_power);
-        auto const now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0;
+
+        auto const now = std::max(pll_.at_tick().time_since_epoch().count() / 1000000000.0, std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0);
         CEMS::Circutor::InstantReading msg {
             now,
             static_cast<std::uint8_t>(slave_address_),
@@ -611,9 +651,9 @@ private:
             *flatbuffers::GetMutableRoot<CEMS::Circutor::InstantReading>(storage.get()) = msg;
             instant_reading_area_.publish_storage(storage);
             broadcast_topic(TOPIC_NAME_INSTANT_READING, &msg, sizeof(msg));
-            instant_reading_area_.tick();
-            instant_reading_area_.reclaim();
         }
+        instant_reading_area_.tick();
+        instant_reading_area_.reclaim();
     }
 
     void cleanup() {
@@ -654,12 +694,11 @@ int main(int argc, char *argv[]) {
     int const min_priority = sched_get_priority_min(SCHED_RR);
     int const max_priority = sched_get_priority_max(SCHED_RR);
     struct sched_param param;
-    int const my_priority = min_priority + 1;
-    param.sched_priority = std::min(std::max(my_priority, min_priority), max_priority);
+    param.sched_priority = std::min(std::max(thread_priority, min_priority), max_priority);
     sched_setscheduler(0, SCHED_RR, &param);
 
     // Execute component
-    circutor(&memory_pool, component_name, device_name, slave_address, master_clock_name, read_frequency_hz).run();
+    circutor(&memory_pool, component_name, component_realm, device_name, slave_address, master_clock_name, read_frequency_hz).run();
 
     // Cleanup
     std::signal(SIGINT, SIG_DFL);

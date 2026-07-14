@@ -125,7 +125,7 @@ class DSMRReader:
             # Gas
             '0-1:24.2.3': 'Gasstand (m3)',
         }
-        self.ser = serial.Serial(self.port, self.baudrate, timeout=10)
+        self.ser = None
 
     def parse_line(self, line: str) -> Dict[str, Any]:
         """Parse a single DSMR line into value and unit."""
@@ -135,6 +135,7 @@ class DSMRReader:
 
         # Extract value and unit from the last match
         val_part = matches[-1]
+        val_part = val_part.replace('\x00', '')
         if '*' in val_part:
             value, unit = val_part.split('*')
             return {'value': value, 'unit': unit}
@@ -173,8 +174,17 @@ class DSMRReader:
         """Read and parse DSMR data from the serial port."""
         data = {}
         try:
+            if self.ser == None:
+                try:
+                    self.ser = serial.Serial(self.port, self.baudrate, timeout=10)
+                except serial.SerialException:
+                    return {}
+            self.ser.reset_input_buffer()
+
             while True:
                 line = self.ser.readline().decode('ascii', errors='ignore').strip()
+                if not line:
+                    continue
 
                 # Parse historical data
                 if '0-0:98.1.0' in line:
@@ -194,6 +204,9 @@ class DSMRReader:
 
         except Exception as e:
             print(f"DSMR reading error: {e}")
+            if self.ser:
+                self.ser.close()
+            self.set = None
 
         return data
 
@@ -215,13 +228,9 @@ class DSMRComponent(fabrix.Component):
 
     def run(self):
         """Main loop."""
-        timestep = 1.0
-        next_timepoint = time.time() + timestep
-        self.process()
         while not stop:
+            while self.process(): pass
             self._act()
-            self.process_until(next_timepoint)
-            while next_timepoint <= time.time(): next_timepoint += timestep
 
     def _on_error(self, other_end, error_code):
         print(f"Error: {other_end.identifier().name() if other_end else '<>'} with error code {fabrix.EnumNameErrorCode(error_code)}")
@@ -236,8 +245,7 @@ class DSMRComponent(fabrix.Component):
 
     def _on_subscribe_request(self, sender_endpoint, delivery_endpoint, topic_name):
         print(f"Received subscribe request from '{sender_endpoint.identifier().name()}' for topic '{topic_name}'")
-        if topic_name == self._TOPIC_NAME_DSMR_DATA: return True
-        return False
+        return topic_name == self._TOPIC_NAME_DSMR_DATA
 
     def _on_unsubscribe_request(self, sender_endpoint, delivery_endpoint, topic_name):
         print(f"Received unsubscribe request from '{sender_endpoint.identifier().name()}' for topic '{topic_name}'")
@@ -252,69 +260,72 @@ class DSMRComponent(fabrix.Component):
 
         # Publish data
         if new_dsmr_data:
-            self.dsmr_data.update(new_dsmr_data)
-            builder = flatbuffers.Builder(1024)
-            # Monthly peaks vector
-            history_items = self.dsmr_data.get('history', {})
-            if history_items:
-                history_items.sort(key=lambda x: x['timestamp'][0], reverse=True)
-                num_peaks = len(history_items)
-                if num_peaks > 0:
-                    DSMRData.StartMonthPeaksVector(builder, num_peaks)
-                    for item in reversed(history_items):
-                        PeakConsumption.CreatePeakConsumption(
-                            builder,
-                            dsmr_to_epoch(item['timestamp']),
-                            float(item['peak'])
-                        )
-                    peaks_vector = builder.EndVector()
-            else:
-                peaks_vector = 0
+            try:
+                self.dsmr_data.update(new_dsmr_data)
+                builder = flatbuffers.Builder(1024)
+                # Monthly peaks vector
+                history_items = self.dsmr_data.get('history', {})
+                if history_items:
+                    history_items.sort(key=lambda x: x['timestamp'][0], reverse=True)
+                    num_peaks = len(history_items)
+                    if num_peaks > 0:
+                        DSMRData.StartMonthPeaksVector(builder, num_peaks)
+                        for item in reversed(history_items):
+                            PeakConsumption.CreatePeakConsumption(
+                                builder,
+                                dsmr_to_epoch(item['timestamp']),
+                                float(item['peak'])
+                            )
+                        peaks_vector = builder.EndVector()
+                else:
+                    peaks_vector = 0
 
-            # Start the DSMRData table before adding slots
-            DSMRData.Start(builder)
-            # Natural gas
-            natural_gas = NaturalGas.CreateNaturalGas(builder, float(self.dsmr_data.get('Gasstand (m3)', {}).get('value', float('nan'))))
-            DSMRData.AddNaturalGas(builder, natural_gas)
-            # Monthly peaks
-            DSMRData.AddMonthPeaks(builder, peaks_vector)
-            # Timestamp
-            DSMRData.AddTimestamp(builder, time.time())
-            # Instant electricity
-            instant = Instant.CreateInstant(builder,
-                                            float(self.dsmr_data.get('Vermogenslimiet (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Stroomlimiet (A)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Totaal Afname (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Totaal Injectie (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Huidig Kwartiergemiddelde (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Maandpiek Lopende Maand (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L1 Afname (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L1 Injectie (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Spanning L1 (V)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Stroom L1 (A)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L2 Afname (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L2 Injectie (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Spanning L2 (V)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Stroom L2 (A)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L3 Afname (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Vermogen L3 Injectie (kW)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Spanning L3 (V)', {}).get('value', float('nan'))),
-                                            float(self.dsmr_data.get('Stroom L3 (A)', {}).get('value', float('nan')))
-                                            )
-            DSMRData.AddInstant(builder, instant)
-            # Energy electricity
-            energy = Energy.CreateEnergy(builder,
-                                         float(self.dsmr_data.get('Afname Dagtarief (kWh)', {}).get('value', float('nan'))),
-                                         float(self.dsmr_data.get('Afname Nachttarief (kWh)', {}).get('value', float('nan'))),
-                                         float(self.dsmr_data.get('Injectie Dagtarief (kWh)', {}).get('value', float('nan'))),
-                                         float(self.dsmr_data.get('Injectie Nachttarief (kWh)', {}).get('value', float('nan'))),
-                                         )
-            DSMRData.AddEnergy(builder, energy)
-            dsmrdata = DSMRData.End(builder)
-            builder.Finish(dsmrdata)
-            storage = self.data_area.create_storage(builder.Output())
-            self.data_area.publish_storage(storage)
-            self.broadcast_topic(self._TOPIC_NAME_DSMR_DATA, builder.Output())
+                # Start the DSMRData table before adding slots
+                DSMRData.Start(builder)
+                # Natural gas
+                natural_gas = NaturalGas.CreateNaturalGas(builder, float(self.dsmr_data.get('Gasstand (m3)', {}).get('value', float('nan'))))
+                DSMRData.AddNaturalGas(builder, natural_gas)
+                # Monthly peaks
+                DSMRData.AddMonthPeaks(builder, peaks_vector)
+                # Timestamp
+                DSMRData.AddTimestamp(builder, time.time())
+                # Instant electricity
+                instant = Instant.CreateInstant(builder,
+                                                float(self.dsmr_data.get('Vermogenslimiet (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Stroomlimiet (A)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Totaal Afname (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Totaal Injectie (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Huidig Kwartiergemiddelde (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Maandpiek Lopende Maand (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L1 Afname (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L1 Injectie (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Spanning L1 (V)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Stroom L1 (A)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L2 Afname (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L2 Injectie (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Spanning L2 (V)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Stroom L2 (A)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L3 Afname (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Vermogen L3 Injectie (kW)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Spanning L3 (V)', {}).get('value', float('nan'))),
+                                                float(self.dsmr_data.get('Stroom L3 (A)', {}).get('value', float('nan')))
+                                                )
+                DSMRData.AddInstant(builder, instant)
+                # Energy electricity
+                energy = Energy.CreateEnergy(builder,
+                                             float(self.dsmr_data.get('Afname Dagtarief (kWh)', {}).get('value', float('nan'))),
+                                             float(self.dsmr_data.get('Afname Nachttarief (kWh)', {}).get('value', float('nan'))),
+                                             float(self.dsmr_data.get('Injectie Dagtarief (kWh)', {}).get('value', float('nan'))),
+                                             float(self.dsmr_data.get('Injectie Nachttarief (kWh)', {}).get('value', float('nan'))),
+                                             )
+                DSMRData.AddEnergy(builder, energy)
+                dsmrdata = DSMRData.End(builder)
+                builder.Finish(dsmrdata)
+                storage = self.data_area.create_storage(builder.Output())
+                self.data_area.publish_storage(storage)
+                self.broadcast_topic(self._TOPIC_NAME_DSMR_DATA, builder.Output())
+            except Exception:
+                pass
         else:
             self.data_area.publish_none()
         self.data_area.tick()

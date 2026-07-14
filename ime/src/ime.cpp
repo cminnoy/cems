@@ -28,10 +28,12 @@ int exit_code = EXIT_SUCCESS;
 
 std::pmr::unsynchronized_pool_resource memory_pool;
 std::pmr::string component_name(&memory_pool);
+std::pmr::string component_realm(&memory_pool);
 std::pmr::string device_name("/dev/ime", &memory_pool);
 std::pmr::string master_clock_name(&memory_pool);
 double read_frequency_hz = 1.0;
 int slave_address = 1;
+int thread_priority = 10;
 bool verbose = false;
 
 void print_help() {
@@ -40,14 +42,18 @@ void print_help() {
                  "Options:\n"
                  "  -n, --name <component_name>\n"
                  "      Specify the component name [mandatory]\n"
+                 "  -r, --realm <component_realm>\n"
+                 "      Specify the component realm [mandatory]\n"
                  "  -d, --device <device>\n"
                  "      Specify the device name [default: /dev/ime]\n"
                  "  -s, --slave <address>\n"
-                 "      Set the Modbus slave address [default: 1]\n";
+                 "      Set the Modbus slave address [default: 1]\n"
                  "  -c, --clock <component_name>\n"
                  "      Specify the master clock component [optional]\n"
                  "  -f, --frequency <Hz>\n"
                  "      Set the frequency [default: 1]\n"
+                 "  -p, --priority <priority>\n"
+                 "      Set the priority of the real time process [default: 10]\n"
                  "  -v, --verbose\n"
                  "      Enable verbose output\n"
                  "  -h, --help\n"
@@ -58,20 +64,25 @@ void print_help() {
 void parse_args(int argc, char *argv[]) {
     static struct option long_options[] = {
         {"name", required_argument, nullptr, 'n'},
+        {"realm", required_argument, nullptr, 'r'},
         {"device", optional_argument, nullptr, 'd'},
         {"slave", optional_argument, nullptr, 's'},
         {"clock", required_argument, nullptr, 'c'},
         {"frequency", required_argument, nullptr, 'f'},
+        {"priority", required_argument, nullptr, 'p'},
         {"verbose", no_argument, nullptr, 'v'},
         {"help", no_argument, nullptr, 'h'},
         {0, 0, 0, 0}
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "n:d:s:c:f:vh", long_options, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "n:r:d:s:c:f:p:vh", long_options, nullptr)) != -1) {
         switch (opt) {
             case 'n':
                 component_name = optarg;
+                break;
+            case 'r':
+                component_realm = optarg;
                 break;
             case 'd':
                 device_name = optarg;
@@ -93,6 +104,13 @@ void parse_args(int argc, char *argv[]) {
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'p':
+                thread_priority = std::atoi(optarg);
+                if (thread_priority < sched_get_priority_min(SCHED_RR) or thread_priority > sched_get_priority_max(SCHED_RR)) {
+                    std::cerr << "Error: Priority must be between " << sched_get_priority_min(SCHED_RR) << " and " << sched_get_priority_max(SCHED_RR) << ".\n";
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case 'v':
                 verbose = true;
                 break;
@@ -107,6 +125,10 @@ void parse_args(int argc, char *argv[]) {
 
     if (component_name.empty()) {
         std::cerr << "Error: Component name is mandatory. Use -h for help.\n";
+        exit(EXIT_FAILURE);
+    }
+    if (component_realm.empty()) {
+        std::cerr << "Error: Component realm is mandatory. Use -h for help.\n";
         exit(EXIT_FAILURE);
     }
 }
@@ -320,11 +342,11 @@ public:
 
     ime(std::pmr::memory_resource * const memory_resource,
         std::string_view name,
+        std::string_view realm,
         std::string_view device_name,
         int slave_address,
-        std::string_view master_clock_name = "",
-        double nominal_frequency_hz = 1.0,
-        std::string_view realm = "cems",
+        std::string_view master_clock_name,
+        double nominal_frequency_hz,
         std::size_t const size = 65536)
     : fabrix::component(memory_resource, name, realm, size)
     , pll_(nominal_frequency_hz)
@@ -377,10 +399,10 @@ public:
         // Loop
         try {
             do {
-                sync_pll();
                 process_until(pll_.at_tick());
                 read_and_publish();
                 pll_.advance();
+                sync_pll();
             } while (!stop);
         } catch (std::exception const & e) {
             std::cerr << "Run loop error: " << e.what() << std::endl;
@@ -555,7 +577,7 @@ private:
                                 static_cast<float>(read_data.phase2_current) +
                                 static_cast<float>(read_data.phase3_current)) / 3.0f;
 
-        double const now = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0;
+        double const now = std::max(pll_.at_tick().time_since_epoch().count() / 1000000000.0, std::chrono::system_clock::now().time_since_epoch().count() / 1000000000.0);
 
         CEMS::IME::InstantReading instant_reading {
             now,
@@ -667,15 +689,14 @@ int main(int argc, char *argv[]) {
     int const min_priority = sched_get_priority_min(SCHED_RR);
     int const max_priority = sched_get_priority_max(SCHED_RR);
     struct sched_param param;
-    int const my_priority = min_priority + 1;
-    param.sched_priority = std::min(std::max(my_priority, min_priority), max_priority);
+    param.sched_priority = std::min(std::max(thread_priority, min_priority), max_priority);
     sched_setscheduler(0, SCHED_RR, &param);
 
     // Use polymorphic memory system for memory management
     std::pmr::set_default_resource(&memory_pool);
 
     // Execute component
-    ime(&memory_pool, component_name, device_name, slave_address, master_clock_name, read_frequency_hz).run();
+    ime(&memory_pool, component_name, component_realm, device_name, slave_address, master_clock_name, read_frequency_hz).run();
 
     // Cleanup
     std::signal(SIGINT, SIG_DFL);

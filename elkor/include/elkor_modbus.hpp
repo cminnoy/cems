@@ -1,4 +1,4 @@
-/* Copyright 2012-2025 Chris Minnoy */
+/* Copyright 2012-2026 Chris Minnoy */
 
 #pragma once
 
@@ -7,6 +7,7 @@
 
 // C++
 #include <string>
+#include <algorithm>
 
 struct _modbus;
 typedef struct _modbus modbus_t;
@@ -180,7 +181,6 @@ private:
         WATTSON_FLOAT_TOTAL_APPARENT_ENERGY             = 0x0376, // kVAh , 32-bit
     };
 
-
     struct alignas(8) WattsOnFloatRaw {
         float       total_real_power;
         float       total_reactive_power;
@@ -309,7 +309,7 @@ private:
 
 public:
 
-    class WattsOnFloat : private WattsOnFloatRaw {
+    class WattsOnFloat final : private WattsOnFloatRaw {
         friend class WattsOnModbusInterface;
     public:
         float TotalRealPower() const { return total_real_power * 1000.0f; }
@@ -318,7 +318,7 @@ public:
         float AverageVoltageLineNeutral() const { return average_voltage_l_n; }
         float AverageVoltageLineLine() const { return average_voltage_l_l; }
         float AverageCurrent() const { return average_current; }
-        float TotalSystemPowerFactor() const { return total_system_power_factor; }
+        float TotalSystemPowerFactor() const { return std::clamp(total_system_power_factor, -1.0f, 1.0f); }
         float Frequency() const { return frequency; }
         float VoltagePhaseA2N() const { return voltage_phase_a_n; }
         float VoltagePhaseB2N() const { return voltage_phase_b_n; }
@@ -338,9 +338,9 @@ public:
         float ApparentPowerPhaseA() const { return apparent_power_phase_a * 1000.0f; }
         float ApparentPowerPhaseB() const { return apparent_power_phase_b * 1000.0f; }
         float ApparentPowerPhaseC() const { return apparent_power_phase_c * 1000.0f; }
-        float PowerFactorPhaseA() const { return power_factor_phase_a; }
-        float PowerFactorPhaseB() const { return power_factor_phase_b; }
-        float PowerFactorPhaseC() const { return power_factor_phase_c; }
+        float PowerFactorPhaseA() const { return std::clamp(power_factor_phase_a, -1.0f, 1.0f); }
+        float PowerFactorPhaseB() const { return std::clamp(power_factor_phase_b, -1.0f, 1.0f); }
+        float PowerFactorPhaseC() const { return std::clamp(power_factor_phase_c, -1.0f, 1.0f); }
         float SoftwareVersion() const { return software_version; }
         float ImportEnergyPhaseA() const { return import_energy_phase_a * 1000.0f; }
         float ImportEnergyPhaseB() const { return import_energy_phase_b * 1000.0f; }

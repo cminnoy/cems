@@ -30,16 +30,13 @@ import random
 import argparse
 import fabrix
 import curses
+import copy
 from datetime import datetime
 from fabrix import rcu
 
 from CEMS.MasterClock.ClockTick import ClockTick as MasterClockTick
 
 from CEMS.DSMR.DSMRData import DSMRData as DSMRData
-from CEMS.DSMR.Instant import Instant as DSMRInstantReading
-from CEMS.DSMR.Energy import Energy as DSMREnergyReading
-from CEMS.DSMR.NaturalGas import NaturalGas as DSMRNaturalGas
-from CEMS.DSMR.PeakConsumption import PeakConsumption as DSMRPeakConsumption
 
 from CEMS.Elkor.InstantReading import InstantReading as ElkorInstantReading
 from CEMS.Elkor.EnergyReading import EnergyReading as ElkorEnergyReading
@@ -69,6 +66,9 @@ from CEMS.Zendure.ControlState import ControlState
 from CEMS.OpenMeteo.WeatherCode import WeatherCode
 from CEMS.OpenMeteo.WeatherCurrent import WeatherCurrent
 from CEMS.OpenMeteo.WeatherForecast import WeatherForecast
+
+from CEMS.SolarMainRoof.InstantReading import InstantReading as SolarInstantReading
+from CEMS.SolarMainRoof.EnergyReading import EnergyReading as SolarEnergyReading
 
 exit_code = 0
 stop = False
@@ -624,6 +624,7 @@ def format_zendure_control(cs, details:bool=True):
         f"Is Night: {cs.IsNight()}",
         f"Is Day: {cs.IsDay()}",
         f"EV Charging: {cs.EvCharging()}",
+        f"Sliding Grid Load: {cs.SlidingGridLoad():.0f} W",
         f"Linear Change Cap: {cs.LinearChangeCap()} W/s/bat",
     ]
 
@@ -728,6 +729,23 @@ def format_weather_forecast(wf, details:bool=True):
         ]
     return l
 
+def format_solar_instant(ir, details:bool=True):
+    if ir is None:
+        return ["N/A"]
+
+    dt = datetime.fromtimestamp(ir.Timestamp())
+    timestamp_label = dt.strftime('%H:%M:%S') + f".{dt.microsecond // 10000:02d}"
+
+    l = [
+        f"Unix time: {ir.Timestamp():.3f}",
+        f"Timestamp: {timestamp_label}",
+        "",
+        f"Production: {ir.Production():.0f} W",
+        f"Solar Elkor: {ir.ProductionElkor():.0f} W",
+        f"Solar DSMR: {ir.ProductionDsmr():.0f} W",
+    ]
+    return l
+
 def safe_addstr(target_win, y, x, text, width=None):
     """Safely adds string to an explicit pad/window context and clips it horizontally"""
     height, max_w = target_win.getmaxyx()
@@ -793,6 +811,7 @@ class Observer(fabrix.Component):
     _COMPONENT_NAME_ZENDURE_BATTERY_B = "zendure_battery_b"
     _COMPONENT_NAME_ZENDURE_CONTROL = "zendure_control"
     _COMPONENT_NAME_WEATHER = "weather"
+    _COMPONENT_NAME_SOLAR = "solar"
 
     def __init__(self, name):
         """Constructor."""
@@ -810,6 +829,8 @@ class Observer(fabrix.Component):
         self.zendure_control_area = rcu.Reader()
         self.weather_current_area = rcu.Reader()
         self.weather_forecast_area = rcu.Reader()
+        self.solar_instant_reading_area = rcu.Reader()
+        self.solar_energy_reading_area = rcu.Reader()
         self.data = {
             "master_clock": {"clock_tick": None},
             "dsmr": {"data": None},
@@ -817,7 +838,8 @@ class Observer(fabrix.Component):
             "ime": {"instant": None, "energy": None},
             "circutor": {"instant": None, "energy": None},
             "zendure": {"a": None, "b": None, "control": None},
-            "weather": {"status": None, "forecast": None}
+            "weather": {"status": None, "forecast": None},
+            "solar": {"instant": None, "energy": None},
         }
         self.instant = True
         self.details = False
@@ -855,9 +877,9 @@ class Observer(fabrix.Component):
                 time.sleep(0.5)
                 continue
 
-            # Spaces for DSMR, ELKOR, IME, CIRCUTOR, ZENDURE A, ZENDURE B, ZENDURE CONTROL, WEATHER
+            # Spaces for DSMR, ELKOR, IME, CIRCUTOR, ZENDURE A, ZENDURE B, ZENDURE CONTROL, WEATHER, SOLAR
             col_w = 40
-            total_content_width = col_w * 8
+            total_content_width = col_w * 9
 
             # Draw static master clock header on the standard window
             clock_str = format_master_clock(self.data["master_clock"]["clock_tick"])
@@ -946,7 +968,15 @@ class Observer(fabrix.Component):
                 weather_lines += ["", "-- CURRENT --"] + format_weather_current(self.data["weather"]["current"], self.details) + \
                                  ["", "-- FORECAST --"] + format_weather_forecast(self.data["weather"]["forecast"], self.details)
 
-            total_content_height = max(len(dsmr_lines), len(elkor_lines), len(ime_lines), len(circ_lines), len(bat_lines_a), len(bat_lines_b), len(bat_control_lines), len(weather_lines)) + 3
+            solar_lines = []
+            if self.solar_instant_reading_area and self.solar_instant_reading_area.endpoint():
+                solar_lines += [f"Owner Active: {self.weather_current_area.endpoint().is_owner_active()}",
+                                  f"Creator PID: {self.weather_current_area.endpoint().creator_pid()}",
+                                  f"Created On: {datetime.fromtimestamp(self.weather_current_area.endpoint().created_on()).strftime('%Y-%m-%d %H:%M:%S')}"]
+            if self.instant:
+                solar_lines += ["", "-- Instant --"] + format_solar_instant(self.data["solar"]["instant"], self.details)
+
+            total_content_height = max(len(dsmr_lines), len(elkor_lines), len(ime_lines), len(circ_lines), len(bat_lines_a), len(bat_lines_b), len(bat_control_lines), len(weather_lines), len(solar_lines)) + 3
 
             visible_viewport_height = height - 4
             if visible_viewport_height < 1:
@@ -970,6 +1000,7 @@ class Observer(fabrix.Component):
             renderer.draw(5 * col_w, "ZENDURE B", bat_lines_b, self.scroll_row, visible_viewport_height)
             renderer.draw(6 * col_w, "ZENDURE CONTROL", bat_control_lines, self.scroll_row, visible_viewport_height)
             renderer.draw(7 * col_w, "WEATHER", weather_lines, self.scroll_row, visible_viewport_height)
+            renderer.draw(8 * col_w, "SOLAR", solar_lines, self.scroll_row, visible_viewport_height)
 
             stdscr.refresh()
 
@@ -1037,6 +1068,9 @@ class Observer(fabrix.Component):
             elif name == self._COMPONENT_NAME_WEATHER and (endpoint := self._open_endpoint(name)).is_open():
                 self.weather_current_area = rcu.find_area(endpoint, "WeatherCurrent")
                 self.weather_forecast_area = rcu.find_area(endpoint, "WeatherForecast")
+            elif name == self._COMPONENT_NAME_SOLAR and (endpoint := self._open_endpoint(name)).is_open():
+                self.solar_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
+                self.solar_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
 
     def _on_endpoint_create(self, name, is_private):
         """When a new known endpoint is created find RCU areas."""
@@ -1064,6 +1098,9 @@ class Observer(fabrix.Component):
         elif name == self._COMPONENT_NAME_WEATHER and (endpoint := self._open_endpoint(name)).is_open():
             self.weather_current_area = rcu.find_area(endpoint, "WeatherCurrent")
             self.weather_forecast_area = rcu.find_area(endpoint, "WeatherForecast")
+        elif name == self._COMPONENT_NAME_SOLAR and (endpoint := self._open_endpoint(name)).is_open():
+            self.solar_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
+            self.solar_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
 
     def _on_endpoint_remove(self, name):
         """When an endpoint is removed, let the user know."""
@@ -1102,6 +1139,11 @@ class Observer(fabrix.Component):
             self.weather_forecast_area.reset()
             self.data["weather"]["current"] = None
             self.data["weather"]["forecast"] = None
+        elif name == self._COMPONENT_NAME_SOLAR:
+            self.solar_instant_reading_area.reset()
+            self.solar_energy_reading_area.reset()
+            self.data["solar"]["instant"] = None
+            self.data["solar"]["energy"] = None
 
     def _act(self):
         do_scan = False
@@ -1115,7 +1157,7 @@ class Observer(fabrix.Component):
 
         with rcu.ScopedAccess(self.dsmr_data_area) as access:
             if access:
-                dsmr_data = DSMRData.GetRootAsDSMRData(access.get(), 0)
+                dsmr_data = DSMRData.GetRootAs(access.get(), 0)
                 self.data["dsmr"]["data"] = dsmr_data
             else:
                 do_scan = True
@@ -1198,6 +1240,21 @@ class Observer(fabrix.Component):
             else:
                 do_scan = True
 
+        with rcu.ScopedAccess(self.solar_instant_reading_area) as access:
+            if access:
+                ir = SolarInstantReading()
+                ir.Init(access.get(), 8)
+                self.data["solar"]["instant"] = ir
+            else:
+                do_scan = True
+        with rcu.ScopedAccess(self.solar_energy_reading_area) as access:
+            if access:
+                er = SolarEnergyReading()
+                er.Init(access.get(), 8)
+                self.data["solar"]["energy"] = er
+            else:
+                do_scan = True
+
         def scan_rcu(endpoint):
             name = endpoint.identifier().name()
             if name == self._COMPONENT_NAME_MASTER_CLOCK and not self.master_clock_area:
@@ -1222,6 +1279,9 @@ class Observer(fabrix.Component):
             elif name == self._COMPONENT_NAME_WEATHER and (not self.weather_current_area or not self.weather_forecast_area):
                 self.weather_current_area = rcu.find_area(endpoint, "WeatherCurrent")
                 self.weather_forecast_area = rcu.find_area(endpoint, "WeatherForecast")
+            elif name == self._COMPONENT_NAME_SOLAR and (not self.solar_instant_reading_area or not self.solar_energy_reading_area):
+                self.solar_instant_reading_area = rcu.find_area(endpoint, "InstantReading")
+                self.solar_energy_reading_area = rcu.find_area(endpoint, "EnergyReading")
 
         if do_scan:
             self.for_each_open_endpoint(scan_rcu)
