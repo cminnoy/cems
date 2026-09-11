@@ -1,0 +1,15 @@
+namespace CEMS.SolarMainRoof;
+
+struct InstantReading {
+    timestamp: double;                      // When was the sensor data measured (seconds since Epoch)
+    production: float;                      // Estimated solar production based on Elkor meter (W)
+    production_elkor: float;
+    production_dsmr: float;
+}
+
+struct EnergyReading {
+    timestamp: double;                      // When was the sensor data measured (seconds since Epoch)
+    production_today: float;                // Solar energy production based on Elkor meter (Wh)
+    production_this_month: float;           // Solar energy production this month so far (Wh)
+    production_this_year: float;            // Solar energy production this year so far (Wh)
+}

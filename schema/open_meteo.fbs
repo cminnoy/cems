@@ -1,0 +1,96 @@
+namespace CEMS.OpenMeteo;
+
+enum WeatherCode : ubyte {
+    CLEAR = 0,
+    MOSTLY_CLEAR = 1,
+    PARTLY_CLOUDY = 2,
+    CLOUDY = 3,
+    HAZE = 5,
+    MIST = 10,
+    FOG = 45,
+    FREEZING_FOG = 45,
+    LIGHT_DRIZZLE = 51,
+    DRIZZLE = 53,
+    HEAVY_DRIZZLE = 55,
+    LIGHT_FREEZING_DRIZZLE = 56,
+    FREEZING_DRIZZLE = 57,
+    LIGHT_RAIN = 61,
+    RAIN = 63,
+    HEAVY_RAIN = 65,
+    LIGHT_FREEZING_RAIN = 66,
+    FREEZING_RAIN = 67,
+    LIGHT_SNOW = 73,
+    HEAVY_SNOW = 75,
+    SNOW_GRAINS = 77,
+    ICE_PELLETS = 79,
+    LIGHT_RAIN_SHOWER = 80,
+    RAIN_SHOWER = 81,
+    HEAVY_RAIN_SHOWER = 82,
+    THUNDERSTORM = 95,
+    HAILSTORM = 96,
+    HEAVY_THUNDERSTORM = 97,
+    HEAVY_HAILSTORM = 99
+}
+
+// Current weather status
+table WeatherCurrent {
+    timestamp: double;                          // Local time converted to seconds since Epoch
+    latitude: float;                            // Latitude
+    longitude: float;                           // Longitude
+    elevation: float;                           // Elevation; meter above sealevel
+    timezone_abbreviation: string;              // Timezone
+    utc_offset_second: int;                     // Offset in seconds from UTC time
+    weather_code: WeatherCode;                  // Open Meteo weather code
+    temperature: float;                         // degrees Celsius
+    direct_normal_irradiance: float;            // W/m2
+    diffuse_horizontal_irradiance: float;       // W/m2
+    direct_radiation: float;                    // W/m2
+    shortwave_radiation: float;                 // W/m2
+    relative_humidity: float;                   // %
+    precipitation_probability: float;           // %
+    precipitation: float;                       // mm
+    pressure_msl: float;                        // hPa
+    cloud_cover_low: float;                     // %
+    cloud_cover_mid: float;                     // %
+    cloud_cover_high: float;                    // %
+    visibility: float;                          // meters
+    wind_speed: float;                          // m/s
+    cloud_cover: float;                         // % (Total)
+    rain: float;                                // mm
+    showers: float;                             // mm
+    snowfall: float;                            // mm
+    dew_point_2m: float;                        // degrees Celsius
+}
+
+// Fixed-size primitive block for continuous memory allocation
+struct HourlyForecast {
+    timestamp: double;                          // Local time converted to seconds since Epoch
+    weather_code: WeatherCode;                  // Open Meteo weather code
+    temperature: float;                         // degrees Celsius
+    direct_normal_irradiance: float;            // W/m2
+    diffuse_horizontal_irradiance: float;       // W/m2
+    direct_radiation: float;                    // W/m2
+    shortwave_radiation: float;                 // W/m2
+    relative_humidity: float;                   // %
+    precipitation_probability: float;           // %
+    precipitation: float;                       // mm
+    pressure_msl: float;                        // hPa
+    cloud_cover_low: float;                     // %
+    cloud_cover_mid: float;                     // %
+    cloud_cover_high: float;                    // %
+    visibility: float;                          // meters
+    wind_speed: float;                          // m/s
+    cloud_cover: float;                         // % (Total)
+    rain: float;                                // mm
+    showers: float;                             // mm
+    snowfall: float;                            // mm
+    dew_point_2m: float;                        // degrees Celsius
+}
+
+// Full multi-hour forecast timeline
+table WeatherForecast {
+    generated_timestamp: double;                // Pipeline tracking: when this forecast was fetched
+    latitude: float;                            // Latitude
+    longitude: float;                           // Longitude
+    hourly: [HourlyForecast];                   // Array of chronological steps
+}

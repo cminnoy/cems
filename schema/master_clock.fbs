@@ -1,0 +1,6 @@
+namespace CEMS.MasterClock;
+
+struct ClockTick {
+    timestamp: double; // seconds since Epoch
+    frequency: double; // Hz
+}

@@ -1,0 +1,27 @@
+namespace CEMS.Zendure;
+
+enum ControlState : byte {
+    STANDBY = 0,
+    CHARGE_PV_SURPLUS = 1,
+    CHARGE_FORCED = 2,
+    DISCHARGE = 3
+}
+
+table Battery {
+    target_power: int;
+}
+
+table ControlStatus {
+    timestamp: double;          // When was the sensor data measured (seconds since Epoch)
+    status: ControlState;       // Statemachine
+    sunrise: float;             // Expressed in fractional hours since UTC midnight 
+    sunset:  float;             // Expressed in fractional hours since UTC midnight
+    target_soc: ubyte;          // 0..100, SOC to achieve; triggers forced nightly charging is below
+    is_night:  bool;            // In nightly period when most house hold activity is low
+    is_day: bool;               // In period that solar PV can produce power
+    ev_charging: bool;          // Electric vehicle is charging
+    sliding_grid_load: float;   // Sliding Grid Load
+    linear_change_cap: uint;    // Maximum relative change of target power per second
+    battery_a: Battery;         // Battery A (Phase A)
+    battery_b: Battery;         // Battery B (Phase C)
+}
