@@ -340,74 +340,7 @@ public:
     , slave_address_(slave_address)
     {
         device_name_ = device_name.data();
-
-        if (verbose) std::clog << "Initializing modbus connection " << device_name_ << std::endl;
-
-        // Register values for Circutor 0x03E9: 0=9600, 1=19200, 2=38400
-        struct BaudRate { int rate; uint16_t reg_val; };
-        constexpr std::array<BaudRate, 3> baud_steps = {{{9600, 0}, {19200, 1}, {38400, 2}}};
-
-        int current_step = -1;
-
-        auto try_connect = [&](int baud) -> bool {
-            if (mb_ctx_) {
-                modbus_close(mb_ctx_);
-                modbus_free(mb_ctx_);
-            }
-            mb_ctx_ = modbus_new_rtu(device_name_.c_str(), baud, 'N', 8, 1);
-            if (!mb_ctx_) return false;
-
-            modbus_set_response_timeout(mb_ctx_, 0, 200000); // 200ms
-            modbus_set_slave(mb_ctx_, slave_address_);
-
-            if (modbus_connect(mb_ctx_) == -1) return false;
-
-            // Use modbus_read_registers (0x03) for Holding Registers
-            // Verify with the baud rate register
-            std::uint16_t val;
-            return modbus_read_registers(mb_ctx_, 0x03E9, 1, &val) != -1;
-        };
-
-        // 1. Scan to find current meter baud rate
-        for (int i = 0; i < (int)baud_steps.size(); ++i) {
-            if (verbose) std::clog << "Scanning at " << baud_steps[i].rate << "..." << std::endl;
-            if (try_connect(baud_steps[i].rate)) {
-                current_step = i;
-                break;
-            }
-        }
-
-        // 2. Try to escalate baud rate step-by-step
-        if (current_step != -1) {
-            for (int next_step = current_step + 1; next_step < (int)baud_steps.size(); ++next_step) {
-                if (verbose) std::clog << "Attempting upgrade to " << baud_steps[next_step].rate << "..." << std::endl;
-
-                uint16_t val = baud_steps[next_step].reg_val;
-                // Force Function 0x10 instead of 0x06
-                if (modbus_write_registers(mb_ctx_, 0x03E9, 1, &val) != -1) {
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-
-                    if (try_connect(baud_steps[next_step].rate)) {
-                        current_step = next_step;
-                        continue; 
-                    }
-                } else {
-                    // Log WHY the write failed
-                    if (verbose) std::clog << "Write failed: " << modbus_strerror(errno) << std::endl;
-                }
-
-                if (verbose) std::clog << "Upgrade failed, reverting to " << baud_steps[current_step].rate << std::endl;
-                try_connect(baud_steps[current_step].rate);
-                break;
-            }
-
-            // Final configuration for production use
-            modbus_set_response_timeout(mb_ctx_, 0, 150000); // 150ms
-            std::clog << "Connected at " << baud_steps[current_step].rate << " baud with response timeout of 150ms." << std::endl;
-        } else {
-            std::cerr << "Error: Could not establish communication with meter at any baud rate." << std::endl;
-            cleanup();
-        }
+        connect();
     }
 
     ~circutor() noexcept override {
@@ -415,8 +348,17 @@ public:
     }
 
     void run() {
+        auto last_connect_attempt = std::chrono::steady_clock::now();
         try {
             do {
+                // If no modbus connection, retry every 15 seconds
+                if (!stop and !mb_ctx_) {
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - last_connect_attempt >= std::chrono::seconds(15)) {
+                        last_connect_attempt = now;
+                        connect();
+                    }
+                }
                 process_until(pll_.at_tick());
                 read_and_publish_instantaneous();
                 read_and_publish_energy();
@@ -524,6 +466,76 @@ protected:
 
 private:
 
+    void connect() {
+        if (verbose) std::clog << "Initializing modbus connection " << device_name_ << std::endl;
+
+        // Register values for Circutor 0x03E9: 0=9600, 1=19200, 2=38400
+        struct BaudRate { int rate; uint16_t reg_val; };
+        constexpr std::array<BaudRate, 3> baud_steps = {{{9600, 0}, {19200, 1}, {38400, 2}}};
+
+        int current_step = -1;
+
+        auto try_connect = [&](int baud) -> bool {
+            if (mb_ctx_) {
+                modbus_close(mb_ctx_);
+                modbus_free(mb_ctx_);
+            }
+            mb_ctx_ = modbus_new_rtu(device_name_.c_str(), baud, 'N', 8, 1);
+            if (!mb_ctx_) return false;
+
+            modbus_set_response_timeout(mb_ctx_, 0, 200000); // 200ms
+            modbus_set_slave(mb_ctx_, slave_address_);
+
+            if (modbus_connect(mb_ctx_) == -1) return false;
+
+            // Use modbus_read_registers (0x03) for Holding Registers
+            // Verify with the baud rate register
+            std::uint16_t val;
+            return modbus_read_registers(mb_ctx_, 0x03E9, 1, &val) != -1;
+        };
+
+        // 1. Scan to find current meter baud rate
+        for (int i = 0; i < (int)baud_steps.size(); ++i) {
+            if (verbose) std::clog << "Scanning at " << baud_steps[i].rate << "..." << std::endl;
+            if (try_connect(baud_steps[i].rate)) {
+                current_step = i;
+                break;
+            }
+        }
+
+        // 2. Try to escalate baud rate step-by-step
+        if (current_step != -1) {
+            for (int next_step = current_step + 1; next_step < (int)baud_steps.size(); ++next_step) {
+                if (verbose) std::clog << "Attempting upgrade to " << baud_steps[next_step].rate << "..." << std::endl;
+
+                uint16_t val = baud_steps[next_step].reg_val;
+                // Force Function 0x10 instead of 0x06
+                if (modbus_write_registers(mb_ctx_, 0x03E9, 1, &val) != -1) {
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+                    if (try_connect(baud_steps[next_step].rate)) {
+                        current_step = next_step;
+                        continue; 
+                    }
+                } else {
+                    // Log WHY the write failed
+                    if (verbose) std::clog << "Write failed: " << modbus_strerror(errno) << std::endl;
+                }
+
+                if (verbose) std::clog << "Upgrade failed, reverting to " << baud_steps[current_step].rate << std::endl;
+                try_connect(baud_steps[current_step].rate);
+                break;
+            }
+
+            // Final configuration for production use
+            modbus_set_response_timeout(mb_ctx_, 0, 150000); // 150ms
+            if (verbose) std::clog << "Connected at " << baud_steps[current_step].rate << " baud with response timeout of 150ms." << std::endl;
+        } else {
+            std::cerr << "Error: Could not establish communication with meter at any baud rate." << std::endl;
+            cleanup();
+        }
+    }
+
     void sync_pll() {
         fabrix::rcu::scoped_access access(clock_tick_area_);
         CEMS::MasterClock::ClockTick const * const tick = flatbuffers::GetRoot<CEMS::MasterClock::ClockTick>(access.get());
@@ -534,7 +546,10 @@ private:
     }
 
     void read_and_publish_energy() {
-        if (!mb_ctx_) return;
+        if (!mb_ctx_) {
+            energy_reading_area_.publish_none();
+            return;
+        }
         if (-1 == modbus_read_registers(mb_ctx_, IMPORTED_ACTIVE_ENERGY, 12, reinterpret_cast<std::uint16_t *>(&read_data.imported_active_energy))) return;
         read_data.imported_active_energy = swap_lr(read_data.imported_active_energy);
         read_data.exported_active_energy = swap_lr(read_data.exported_active_energy);
@@ -566,8 +581,10 @@ private:
     }
 
     void read_and_publish_instantaneous() {
-        if (!mb_ctx_) return;
-
+        if (!mb_ctx_) {
+            instant_reading_area_.publish_none();
+            return;
+        }
         if (-1 == modbus_read_registers(mb_ctx_, PHASE1_VOLTAGE, 18, reinterpret_cast<std::uint16_t *>(&read_data.phase1_voltage))) {
             if (errno == ETIMEDOUT) {
                 // Retry once after a short delay
