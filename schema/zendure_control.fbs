@@ -4,7 +4,8 @@ enum ControlState : byte {
     STANDBY = 0,
     CHARGE_PV_SURPLUS = 1,
     CHARGE_FORCED = 2,
-    DISCHARGE = 3
+    DISCHARGE_PEAK = 3,
+    DISCHARGE_SOC = 4
 }
 
 table Battery {
